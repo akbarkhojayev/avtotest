@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
-    Category, Video, VideoProgress, RoadSign, UserSession,
+    Video, VideoProgress, RoadSign, UserSession,
     TestQuestion, TestAnswer, TestResult, UserTestAnswer
 )
 
@@ -18,25 +18,6 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'first_name', 'last_name', 'email']
-
-
-# ==================== KATEGORIYA ====================
-
-class CategoryWriteSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Category
-        fields = ['id', 'name', 'description', 'order']
-
-
-class CategoryListSerializer(serializers.ModelSerializer):
-    video_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Category
-        fields = ['id', 'name', 'description', 'order', 'video_count']
-
-    def get_video_count(self, obj):
-        return obj.videos.filter(is_active=True).count()
 
 
 class VideoProgressSerializer(serializers.ModelSerializer):
@@ -83,20 +64,6 @@ class VideoWriteSerializer(serializers.ModelSerializer):
             'video_file', 'youtube_url', 'thumbnail',
             'duration', 'order', 'is_active'
         ]
-
-
-class CategorySerializer(serializers.ModelSerializer):
-    videos = VideoSerializer(many=True, read_only=True)
-    video_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = Category
-        fields = ['id', 'name', 'description', 'order', 'video_count', 'videos']
-
-    def get_video_count(self, obj):
-        return obj.videos.filter(is_active=True).count()
-
-
 # ==================== YO'L BELGILARI ====================
 
 class RoadSignSerializer(serializers.ModelSerializer):

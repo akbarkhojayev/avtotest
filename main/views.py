@@ -15,10 +15,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Category, Video, VideoProgress, RoadSign, UserSession, TestQuestion, TestAnswer, TestResult, UserTestAnswer
+from .models import Video, VideoProgress, RoadSign, UserSession, TestQuestion, TestAnswer, TestResult, UserTestAnswer
 from .serializers import (
     LoginSerializer, UserSerializer,
-    CategoryListSerializer, CategorySerializer, CategoryWriteSerializer,
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
     UpdateProgressSerializer,
@@ -119,48 +118,6 @@ class ProfileView(APIView):
             }
         })
 
-
-# ==================== KATEGORIYALAR ====================
-
-class CategoryListCreateView(generics.ListCreateAPIView):
-    """
-    GET  - Barcha kategoriyalar (barcha autentifikatsiya qilingan foydalanuvchilar)
-    POST - Yangi kategoriya qo'shish (faqat admin)
-    """
-    queryset = Category.objects.all()
-
-    def get_permissions(self):
-        if self.request.method == 'POST':
-            return [IsAdminUser()]
-        return [IsAuthenticated()]
-
-    def get_serializer_class(self):
-        if self.request.method == 'POST':
-            return CategoryWriteSerializer
-        return CategoryListSerializer
-
-
-class CategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET    - Kategoriya va videolari (barcha autentifikatsiya qilinganlar)
-    PUT    - Kategoriyani yangilash (faqat admin)
-    PATCH  - Qisman yangilash (faqat admin)
-    DELETE - O'chirish (faqat admin)
-    """
-    queryset = Category.objects.all()
-
-    def get_permissions(self):
-        if self.request.method in ('PUT', 'PATCH', 'DELETE'):
-            return [IsAdminUser()]
-        return [IsAuthenticated()]
-
-    def get_serializer_class(self):
-        if self.request.method in ('PUT', 'PATCH'):
-            return CategoryWriteSerializer
-        return CategorySerializer
-
-
-# ==================== VIDEOLAR ====================
 
 class VideoListCreateView(generics.ListCreateAPIView):
     """

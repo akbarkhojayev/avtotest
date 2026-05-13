@@ -1,7 +1,6 @@
 from django.urls import path
 from .views import (
     LoginView, LogoutView, ProfileView,
-    CategoryListCreateView, CategoryRetrieveUpdateDestroyView,
     VideoListCreateView, VideoRetrieveUpdateDestroyView,
     VideoStreamView, UpdateProgressView,
     RoadSignListCreateView, RoadSignRetrieveUpdateDestroyView,
@@ -17,11 +16,6 @@ urlpatterns = [
     path('api/login/', LoginView.as_view(), name='login'),
     path('api/logout/', LogoutView.as_view(), name='logout'),
     path('api/profile/', ProfileView.as_view(), name='profile'),
-
-    # Kategoriyalar
-    path('api/categories/', CategoryListCreateView.as_view(), name='category-list-create'),
-    path('api/categories/<int:pk>/', CategoryRetrieveUpdateDestroyView.as_view(), name='category-detail'),
-
     # Videolar
     path('api/videos/', VideoListCreateView.as_view(), name='video-list-create'),
     path('api/videos/<int:pk>/', VideoRetrieveUpdateDestroyView.as_view(), name='video-detail'),
