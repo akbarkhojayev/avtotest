@@ -60,7 +60,7 @@ class VideoWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Video
         fields = [
-            'id', 'category', 'title', 'description',
+            'id', 'title', 'title_ru', 'description', 'description_ru',
             'video_file', 'youtube_url', 'thumbnail',
             'duration', 'order', 'is_active'
         ]
@@ -109,27 +109,25 @@ class TestAnswerWithCorrectSerializer(serializers.ModelSerializer):
 
 
 class TestQuestionSerializer(serializers.ModelSerializer):
-    """Foydalanuvchi uchun - to'g'ri javob ko'rsatmaydi"""
     answers = TestAnswerSerializer(many=True, read_only=True)
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'question_text', 'difficulty', 'answers']
+        fields = ['id', 'question_text', 'photo', 'video', 'difficulty', 'answers']
 
 
 class TestQuestionDetailSerializer(serializers.ModelSerializer):
-    """Admin uchun - to'g'ri javob ko'rsatadi"""
     answers = TestAnswerWithCorrectSerializer(many=True, read_only=True)
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'category', 'question_text', 'difficulty', 'order', 'is_active', 'answers']
+        fields = ['id', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
 
 
 class TestQuestionWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestQuestion
-        fields = ['id', 'category', 'question_text', 'difficulty', 'order', 'is_active']
+        fields = ['id', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active']
 
 
 class TestAnswerWriteSerializer(serializers.ModelSerializer):
@@ -153,31 +151,28 @@ class UserTestAnswerSerializer(serializers.ModelSerializer):
 
 
 class TestResultSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
     user_answers = UserTestAnswerSerializer(many=True, read_only=True)
 
     class Meta:
         model = TestResult
         fields = [
-            'id', 'category_name', 'total_questions',
+            'id', 'total_questions',
             'correct_answers', 'score_percent', 'passed',
             'completed_at', 'user_answers'
         ]
 
 
 class TestResultListSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
 
     class Meta:
         model = TestResult
         fields = [
-            'id', 'category_name', 'total_questions',
+            'id', 'total_questions',
             'correct_answers', 'score_percent', 'passed', 'completed_at'
         ]
 
 
 class SubmitTestSerializer(serializers.Serializer):
-    """Test javoblarini yuborish"""
     answers = serializers.ListField(
         child=serializers.DictField(
             child=serializers.IntegerField(),

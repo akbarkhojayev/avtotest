@@ -15,7 +15,10 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
-from .models import Video, VideoProgress, RoadSign, UserSession, TestQuestion, TestAnswer, TestResult, UserTestAnswer
+from .models import (
+    Video, VideoProgress, RoadSign, UserSession,
+    TestQuestion, TestAnswer, TestResult, UserTestAnswer,
+)
 from .serializers import (
     LoginSerializer, UserSerializer,
     VideoSerializer, VideoWriteSerializer,
@@ -119,9 +122,11 @@ class ProfileView(APIView):
         })
 
 
+# ==================== VIDEO ====================
+
 class VideoListCreateView(generics.ListCreateAPIView):
     """
-    GET  - Barcha faol videolar. ?category=<id> filter
+    GET  - Barcha faol videolar
     POST - Yangi video qo'shish (faqat admin)
     """
     def get_permissions(self):
@@ -135,16 +140,12 @@ class VideoListCreateView(generics.ListCreateAPIView):
         return VideoSerializer
 
     def get_queryset(self):
-        queryset = Video.objects.filter(is_active=True)
-        category_id = self.request.query_params.get('category')
-        if category_id:
-            queryset = queryset.filter(category_id=category_id)
-        return queryset
+        return Video.objects.filter(is_active=True)
 
 
 class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET    - Video ma'lumotlari (barcha autentifikatsiya qilinganlar)
+    GET    - Video ma'lumotlari
     PUT    - Yangilash (faqat admin)
     PATCH  - Qisman yangilash (faqat admin)
     DELETE - O'chirish (faqat admin)
@@ -164,7 +165,7 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class VideoStreamView(APIView):
-    """Video streaming - yuklab olishni oldini olish. Range request orqali seeking ishlaydi."""
+    """Video streaming - yuklab olishni oldini olish."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
@@ -294,7 +295,7 @@ class RoadSignListCreateView(generics.ListCreateAPIView):
 
 class RoadSignRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET    - Yo'l belgisi ma'lumotlari (barcha autentifikatsiya qilinganlar)
+    GET    - Yo'l belgisi ma'lumotlari
     PUT    - Yangilash (faqat admin)
     PATCH  - Qisman yangilash (faqat admin)
     DELETE - O'chirish (faqat admin)
@@ -317,7 +318,7 @@ class RoadSignRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 class TestQuestionListView(generics.ListCreateAPIView):
     """
-    GET  - Kategoriya bo'yicha test savollari. ?category=<id> filter
+    GET  - Barcha faol test savollari
     POST - Yangi savol qo'shish (faqat admin)
     """
     def get_permissions(self):
@@ -331,16 +332,12 @@ class TestQuestionListView(generics.ListCreateAPIView):
         return TestQuestionSerializer
 
     def get_queryset(self):
-        queryset = TestQuestion.objects.filter(is_active=True)
-        category_id = self.request.query_params.get('category')
-        if category_id:
-            queryset = queryset.filter(category_id=category_id)
-        return queryset
+        return TestQuestion.objects.filter(is_active=True)
 
 
 class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    GET    - Savol ma'lumotlari (barcha autentifikatsiya qilinganlar)
+    GET    - Savol batafsil (to'g'ri javob bilan)
     PUT    - Yangilash (faqat admin)
     PATCH  - Qisman yangilash (faqat admin)
     DELETE - O'chirish (faqat admin)
@@ -361,12 +358,11 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class TestAnswerListCreateView(generics.ListCreateAPIView):
     """
-    GET  - Savol variantlari (faqat admin)
+    GET  - Savolga tegishli variantlar. ?question=<id> filter
     POST - Yangi variant qo'shish (faqat admin)
     """
     permission_classes = [IsAdminUser]
     serializer_class = TestAnswerWriteSerializer
-    queryset = TestAnswer.objects.all()
 
     def get_queryset(self):
         question_id = self.request.query_params.get('question')
@@ -385,39 +381,31 @@ class TestAnswerDetailView(generics.RetrieveUpdateDestroyAPIView):
 class SubmitTestView(APIView):
     """
     Test javoblarini yuborish va natijani hisoblash.
-    POST /api/tests/submit/?category=<id>
-    Body: {"answers": [{"question_id": answer_id}, ...]}
+    POST /api/tests/submit/
+    Body: {"answers": [{"question_id": 1, "answer_id": 3}, ...]}
     """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=SubmitTestSerializer)
     def post(self, request):
-        category_id = request.query_params.get('category')
-        if not category_id:
-            return Response(
-                {"detail": "category query parameter kerak."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        try:
-            category = Category.objects.get(id=category_id)
-        except Category.DoesNotExist:
-            return Response(
-                {"detail": "Kategoriya topilmadi."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
         serializer = SubmitTestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         answers_data = serializer.validated_data['answers']
+
         questions = TestQuestion.objects.filter(
-            category=category, is_active=True
+            is_active=True
         ).prefetch_related('answers')
 
         if len(answers_data) != questions.count():
             return Response(
-                {"detail": f"Barcha savollarga javob berish kerak. Kutilgan: {questions.count()}, Olingan: {len(answers_data)}"},
+                {
+                    "detail": (
+                        f"Barcha savollarga javob berish kerak. "
+                        f"Kutilgan: {questions.count()}, "
+                        f"Olingan: {len(answers_data)}"
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
@@ -433,7 +421,12 @@ class SubmitTestView(APIView):
                 answer = TestAnswer.objects.get(id=answer_id, question=question)
             except (TestQuestion.DoesNotExist, TestAnswer.DoesNotExist):
                 return Response(
-                    {"detail": f"Savol yoki javob topilmadi. Question: {question_id}, Answer: {answer_id}"},
+                    {
+                        "detail": (
+                            f"Savol yoki javob topilmadi. "
+                            f"Question: {question_id}, Answer: {answer_id}"
+                        )
+                    },
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
@@ -447,22 +440,18 @@ class SubmitTestView(APIView):
                 'is_correct': is_correct
             })
 
-        # Natija hisoblash
         total = questions.count()
         score_percent = round((correct_count / total * 100) if total > 0 else 0, 1)
         passed = score_percent >= 70
 
-        # TestResult yaratish
         test_result = TestResult.objects.create(
             user=request.user,
-            category=category,
             total_questions=total,
             correct_answers=correct_count,
             score_percent=score_percent,
             passed=passed
         )
 
-        # UserTestAnswer yaratish
         for user_answer in user_answers_list:
             UserTestAnswer.objects.create(
                 test_result=test_result,
@@ -478,12 +467,12 @@ class SubmitTestView(APIView):
 
 
 class TestResultListView(generics.ListAPIView):
-    """Foydalanuvchining test natijalari"""
+    """Foydalanuvchining test natijalari ro'yxati"""
     permission_classes = [IsAuthenticated]
     serializer_class = TestResultListSerializer
 
     def get_queryset(self):
-        return TestResult.objects.filter(user=self.request.user)
+        return TestResult.objects.filter(user=self.request.user).order_by('-completed_at')
 
 
 class TestResultDetailView(generics.RetrieveAPIView):
@@ -496,7 +485,7 @@ class TestResultDetailView(generics.RetrieveAPIView):
 
 
 class TestStatisticsView(APIView):
-    """Foydalanuvchining test statistikasi"""
+    """Foydalanuvchining umumiy test statistikasi"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -505,27 +494,16 @@ class TestStatisticsView(APIView):
 
         total_tests = results.count()
         passed_tests = results.filter(passed=True).count()
-        avg_score = results.aggregate(models.Avg('score_percent'))['score_percent__avg'] or 0
-
-        category_stats = []
-        for category in Category.objects.all():
-            cat_results = results.filter(category=category)
-            if cat_results.exists():
-                best_score = cat_results.aggregate(models.Max('score_percent'))['score_percent__max']
-                last_result = cat_results.latest('completed_at')
-                category_stats.append({
-                    'category_id': category.id,
-                    'category_name': category.name,
-                    'attempts': cat_results.count(),
-                    'best_score': best_score,
-                    'last_score': last_result.score_percent,
-                    'passed': last_result.passed
-                })
+        avg_score = results.aggregate(
+            models.Avg('score_percent')
+        )['score_percent__avg'] or 0
 
         return Response({
             "total_tests": total_tests,
             "passed_tests": passed_tests,
+            "failed_tests": total_tests - passed_tests,
             "average_score": round(avg_score, 1),
-            "pass_rate": round((passed_tests / total_tests * 100) if total_tests > 0 else 0, 1),
-            "category_stats": category_stats
+            "pass_rate": round(
+                (passed_tests / total_tests * 100) if total_tests > 0 else 0, 1
+            ),
         })

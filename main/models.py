@@ -100,7 +100,7 @@ class TestQuestion(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.category.name} - {self.question_text[:50]}"
+        return f"{self.difficulty} - {self.question_text[:50]}"
 
     class Meta:
         verbose_name = "Test Savoli"
@@ -132,7 +132,7 @@ class TestResult(models.Model):
     completed_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user.username} - {self.category.name} ({self.score_percent}%)"
+        return f"{self.user.username} ({self.score_percent}%)"
 
     class Meta:
         verbose_name = "Test Natijasi"
