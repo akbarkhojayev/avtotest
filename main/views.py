@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import mimetypes
@@ -5,10 +6,11 @@ import mimetypes
 from django.contrib.auth import authenticate
 from django.db import models, transaction
 from django.db.models import Prefetch
-from django.http import StreamingHttpResponse, Http404
+from django.http import QueryDict, StreamingHttpResponse, Http404
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status, generics
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,11 +27,95 @@ from .serializers import (
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
     UpdateProgressSerializer,
-    TestQuestionSerializer, TestQuestionDetailSerializer, TestQuestionWriteSerializer,
+    TestQuestionSerializer, TestQuestionDetailSerializer,
+    TestQuestionWriteSerializer, TestQuestionWithAnswersWriteSerializer,
     TestAnswerSerializer, TestAnswerWriteSerializer,
     TestResultSerializer, TestResultListSerializer,
     SubmitTestSerializer, BulkQuestionCreateSerializer,
 )
+
+
+# ==================== SWAGGER PARAMETRLAR ====================
+
+_VIDEO_FORM_PARAMS = [
+    openapi.Parameter('title',          openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True,  description='Sarlavha (UZ)'),
+    openapi.Parameter('title_ru',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Sarlavha (RU)'),
+    openapi.Parameter('description',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (UZ)'),
+    openapi.Parameter('description_ru', openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (RU)'),
+    openapi.Parameter('video_file',     openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Video fayli (mp4)'),
+    openapi.Parameter('youtube_url',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='YouTube embed URL'),
+    openapi.Parameter('thumbnail',      openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Muqova rasmi'),
+    openapi.Parameter('duration',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Davomiyligi, masalan: 10:30'),
+    openapi.Parameter('order',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0),
+    openapi.Parameter('is_active',      openapi.IN_FORM, type=openapi.TYPE_BOOLEAN, default=True),
+]
+
+_ROAD_SIGN_FORM_PARAMS = [
+    openapi.Parameter('category',    openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True, description='warning | prohibitory | mandatory | informational | priority | special'),
+    openapi.Parameter('name',        openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True),
+    openapi.Parameter('code',        openapi.IN_FORM, type=openapi.TYPE_STRING,                 description='Masalan: 1.1, 2.5'),
+    openapi.Parameter('description', openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True),
+    openapi.Parameter('image',       openapi.IN_FORM, type=openapi.TYPE_FILE,    required=True, description='Belgi rasmi'),
+    openapi.Parameter('order',       openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0),
+    openapi.Parameter('is_active',   openapi.IN_FORM, type=openapi.TYPE_BOOLEAN, default=True),
+]
+
+_QUESTION_FORM_PARAMS = [
+    openapi.Parameter('lesson_video',   openapi.IN_FORM, type=openapi.TYPE_INTEGER,                 description='Video ID (ixtiyoriy)'),
+    openapi.Parameter('question_text',  openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True,  description='Savol matni'),
+    openapi.Parameter('photo',          openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Savol rasmi'),
+    openapi.Parameter('video',          openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Savol video klipi'),
+    openapi.Parameter('difficulty',     openapi.IN_FORM, type=openapi.TYPE_STRING,  default='medium', description='easy | medium | hard'),
+    openapi.Parameter('order',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0),
+    openapi.Parameter('is_active',      openapi.IN_FORM, type=openapi.TYPE_BOOLEAN, default=True),
+    openapi.Parameter(
+        'answers', openapi.IN_FORM, type=openapi.TYPE_STRING,
+        description='JSON: [{"answer_text":"A","is_correct":false,"order":1}, {"answer_text":"B","is_correct":true,"order":2}]',
+    ),
+]
+
+_BULK_QUESTION_FORM_PARAMS = [
+    openapi.Parameter(
+        'lesson_video', openapi.IN_FORM, type=openapi.TYPE_INTEGER,
+        description='Video ID (ixtiyoriy)',
+    ),
+    openapi.Parameter(
+        'questions', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True,
+        description=(
+            'JSON array:\n'
+            '[{"question_text":"Savol?","difficulty":"medium","order":1,'
+            '"answers":[{"answer_text":"A","is_correct":false},{"answer_text":"B","is_correct":true}]}]'
+        ),
+    ),
+    openapi.Parameter('photo_0',          openapi.IN_FORM, type=openapi.TYPE_FILE, description='0-savol rasmi'),
+    openapi.Parameter('photo_1',          openapi.IN_FORM, type=openapi.TYPE_FILE, description='1-savol rasmi'),
+    openapi.Parameter('photo_2',          openapi.IN_FORM, type=openapi.TYPE_FILE, description='2-savol rasmi'),
+    openapi.Parameter('question_video_0', openapi.IN_FORM, type=openapi.TYPE_FILE, description='0-savol video klipi'),
+    openapi.Parameter('question_video_1', openapi.IN_FORM, type=openapi.TYPE_FILE, description='1-savol video klipi'),
+    openapi.Parameter('question_video_2', openapi.IN_FORM, type=openapi.TYPE_FILE, description='2-savol video klipi'),
+]
+
+
+# ==================== YORDAMCHI FUNKSIYALAR ====================
+
+def _extract_multipart_data(request, json_fields=()):
+    """
+    QueryDict (multipart) dan JSON string maydonlarni parse qilib dict qaytaradi.
+    JSON so'rovlarda o'zgartirmasdan qaytaradi.
+    """
+    if not isinstance(request.data, QueryDict):
+        return request.data
+
+    data = {}
+    for key in request.data:
+        val = request.data[key]
+        if key in json_fields and isinstance(val, str):
+            try:
+                val = json.loads(val)
+            except json.JSONDecodeError:
+                pass
+        data[key] = val
+    return data
 
 
 def get_client_ip(request):
@@ -149,45 +235,82 @@ def _video_queryset_with_prefetch(user):
 class VideoListCreateView(generics.ListCreateAPIView):
     """
     GET  - Barcha faol videolar
-    POST - Yangi video qo'shish (faqat admin)
+    POST - Yangi video qo'shish (faqat admin) — multipart/form-data
     """
+    parser_classes = [MultiPartParser, FormParser]
+
     def get_permissions(self):
         if self.request.method == 'POST':
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
     def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return VideoSerializer
         if self.request.method == 'POST':
             return VideoWriteSerializer
         return VideoSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Video.objects.none()
         if self.request.method == 'GET':
             return _video_queryset_with_prefetch(self.request.user)
         return Video.objects.filter(is_active=True)
+
+    @swagger_auto_schema(
+        operation_description="Yangi video qo'shish (faqat admin). video_file yoki youtube_url dan biri bo'lishi kerak.",
+        manual_parameters=_VIDEO_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={201: VideoSerializer()},
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
 
 
 class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET    - Video ma'lumotlari
-    PUT    - Yangilash (faqat admin)
-    PATCH  - Qisman yangilash (faqat admin)
+    PUT    - Yangilash (faqat admin) — multipart/form-data
+    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data
     DELETE - O'chirish (faqat admin)
     """
+    parser_classes = [MultiPartParser, FormParser]
+
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH', 'DELETE'):
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
     def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return VideoSerializer
         if self.request.method in ('PUT', 'PATCH'):
             return VideoWriteSerializer
         return VideoSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Video.objects.none()
         if self.request.method == 'GET':
             return _video_queryset_with_prefetch(self.request.user)
         return Video.objects.filter(is_active=True)
+
+    @swagger_auto_schema(
+        manual_parameters=_VIDEO_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={200: VideoSerializer()},
+    )
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        manual_parameters=_VIDEO_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={200: VideoSerializer()},
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
 
 
 class VideoStreamView(APIView):
@@ -299,14 +422,18 @@ class RoadSignCategoryListView(APIView):
 class RoadSignListCreateView(generics.ListCreateAPIView):
     """
     GET  - Barcha yo'l belgilari. ?category=<key> filter
-    POST - Yangi yo'l belgisi qo'shish (faqat admin)
+    POST - Yangi yo'l belgisi qo'shish (faqat admin) — multipart/form-data
     """
+    parser_classes = [MultiPartParser, FormParser]
+
     def get_permissions(self):
         if self.request.method == 'POST':
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
     def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return RoadSignSerializer
         if self.request.method == 'POST':
             return RoadSignWriteSerializer
         return RoadSignSerializer
@@ -318,26 +445,55 @@ class RoadSignListCreateView(generics.ListCreateAPIView):
             queryset = queryset.filter(category=category)
         return queryset
 
+    @swagger_auto_schema(
+        operation_description="Yangi yo'l belgisi qo'shish (faqat admin).",
+        manual_parameters=_ROAD_SIGN_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={201: RoadSignSerializer()},
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
 
 class RoadSignRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET    - Yo'l belgisi ma'lumotlari
-    PUT    - Yangilash (faqat admin)
-    PATCH  - Qisman yangilash (faqat admin)
+    PUT    - Yangilash (faqat admin) — multipart/form-data
+    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data
     DELETE - O'chirish (faqat admin)
     """
+    parser_classes = [MultiPartParser, FormParser]
+
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH', 'DELETE'):
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
     def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return RoadSignSerializer
         if self.request.method in ('PUT', 'PATCH'):
             return RoadSignWriteSerializer
         return RoadSignSerializer
 
     def get_queryset(self):
         return RoadSign.objects.filter(is_active=True)
+
+    @swagger_auto_schema(
+        manual_parameters=_ROAD_SIGN_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={200: RoadSignSerializer()},
+    )
+    def update(self, request, *args, **kwargs):
+        return super().update(request, *args, **kwargs)
+
+    @swagger_auto_schema(
+        manual_parameters=_ROAD_SIGN_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={200: RoadSignSerializer()},
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
 
 
 # ==================== TEST ====================
@@ -350,6 +506,8 @@ class VideoTestQuestionListView(generics.ListAPIView):
     serializer_class = TestQuestionSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return TestQuestion.objects.none()
         video = get_object_or_404(Video, pk=self.kwargs['pk'], is_active=True)
         return TestQuestion.objects.filter(
             lesson_video=video, is_active=True
@@ -469,6 +627,8 @@ class VideoTestResultListView(generics.ListAPIView):
     serializer_class = TestResultListSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return TestResult.objects.none()
         video = get_object_or_404(Video, pk=self.kwargs['pk'], is_active=True)
         return TestResult.objects.filter(
             user=self.request.user, lesson_video=video
@@ -478,29 +638,48 @@ class VideoTestResultListView(generics.ListAPIView):
 class BulkTestQuestionCreateView(APIView):
     """
     POST /api/tests/questions/bulk/
-    Bir so'rovda ko'p savol yaratish. Har bir savolga javoblar va to'g'ri javob belgilanadi.
-
-    Body:
-    {
-      "lesson_video": 1,          ← ixtiyoriy (video ID)
-      "questions": [
-        {
-          "question_text": "Savol?",
-          "difficulty": "easy|medium|hard",
-          "order": 1,
-          "answers": [
-            {"answer_text": "Javob A", "is_correct": false, "order": 1},
-            {"answer_text": "Javob B", "is_correct": true,  "order": 2}
-          ]
-        }
-      ]
-    }
+    JSON yoki multipart/form-data orqali bir so'rovda ko'p savol yaratish.
+    Rasmlar: photo_0, photo_1, ... | Video kliplar: question_video_0, question_video_1, ...
     """
     permission_classes = [IsAdminUser]
+    parser_classes = [MultiPartParser, FormParser]
 
-    @swagger_auto_schema(request_body=BulkQuestionCreateSerializer)
+    @swagger_auto_schema(
+        operation_description=(
+            "Bir so'rovda ko'p savol yaratish.\n\n"
+            "**JSON rejimi** (`application/json`):\n"
+            "```json\n"
+            "{\"lesson_video\":1,\"questions\":[{\"question_text\":\"Savol?\",\"difficulty\":\"medium\","
+            "\"order\":1,\"answers\":[{\"answer_text\":\"A\",\"is_correct\":false},{\"answer_text\":\"B\","
+            "\"is_correct\":true}]}]}\n"
+            "```\n\n"
+            "**Fayl rejimi** (`multipart/form-data`):\n"
+            "`questions` ni JSON string sifatida yuboring, "
+            "rasmlarni `photo_0`, `photo_1`, video kliplarni `question_video_0`, `question_video_1` orqali biriktiring."
+        ),
+        manual_parameters=_BULK_QUESTION_FORM_PARAMS,
+        consumes=['multipart/form-data', 'application/json'],
+        responses={
+            201: openapi.Response(
+                description="Savollar muvaffaqiyatli yaratildi",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="3 ta savol muvaffaqiyatli yaratildi."),
+                        'video': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
+                        'questions': openapi.Schema(
+                            type=openapi.TYPE_ARRAY,
+                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
+                        ),
+                    }
+                )
+            )
+        },
+    )
     def post(self, request):
-        serializer = BulkQuestionCreateSerializer(data=request.data)
+        data = _extract_multipart_data(request, json_fields=('questions',))
+
+        serializer = BulkQuestionCreateSerializer(data=data)
         serializer.is_valid(raise_exception=True)
 
         lesson_video = serializer.validated_data.get('lesson_video')
@@ -508,21 +687,31 @@ class BulkTestQuestionCreateView(APIView):
 
         created = []
         with transaction.atomic():
-            for q_data in questions_data:
+            for i, q_data in enumerate(questions_data):
                 answers_data = q_data.pop('answers')
                 question = TestQuestion.objects.create(
                     lesson_video=lesson_video,
                     question_text=q_data['question_text'],
                     difficulty=q_data['difficulty'],
-                    order=q_data['order'],
+                    order=q_data.get('order', i + 1),
                     is_active=True,
                 )
-                for ans in answers_data:
+
+                photo = request.FILES.get(f'photo_{i}')
+                q_video = request.FILES.get(f'question_video_{i}')
+                if photo or q_video:
+                    if photo:
+                        question.photo = photo
+                    if q_video:
+                        question.video = q_video
+                    question.save()
+
+                for j, ans in enumerate(answers_data, start=1):
                     TestAnswer.objects.create(
                         question=question,
                         answer_text=ans['answer_text'],
-                        is_correct=ans['is_correct'],
-                        order=ans['order'],
+                        is_correct=ans.get('is_correct', False),
+                        order=ans.get('order', j),
                     )
                 created.append(question)
 
@@ -541,41 +730,99 @@ class BulkTestQuestionCreateView(APIView):
 class TestQuestionListView(generics.ListCreateAPIView):
     """
     GET  - Barcha faol test savollari
-    POST - Yangi savol qo'shish (faqat admin)
+    POST - Yangi savol + javoblar qo'shish (faqat admin) — multipart/form-data yoki JSON
     """
+    parser_classes = [MultiPartParser, FormParser]
+
     def get_permissions(self):
         if self.request.method == 'POST':
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
     def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return TestQuestionSerializer
         if self.request.method == 'POST':
-            return TestQuestionWriteSerializer
+            return TestQuestionWithAnswersWriteSerializer
         return TestQuestionSerializer
 
     def get_queryset(self):
-        return TestQuestion.objects.filter(is_active=True)
+        return TestQuestion.objects.filter(is_active=True).prefetch_related('answers')
+
+    @swagger_auto_schema(
+        operation_description=(
+            "Yangi savol qo'shish. Javoblarni ham birga yuboring.\n\n"
+            "**JSON rejimi**: `answers` ni list sifatida yuboring.\n"
+            "**Fayl rejimi**: `answers` ni JSON string sifatida yuboring."
+        ),
+        manual_parameters=_QUESTION_FORM_PARAMS,
+        consumes=['multipart/form-data', 'application/json'],
+        responses={201: TestQuestionDetailSerializer()},
+    )
+    def create(self, request, *args, **kwargs):
+        data = _extract_multipart_data(request, json_fields=('answers',))
+        serializer = TestQuestionWithAnswersWriteSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response(
+            TestQuestionDetailSerializer(question, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET    - Savol batafsil (to'g'ri javob bilan)
-    PUT    - Yangilash (faqat admin)
-    PATCH  - Qisman yangilash (faqat admin)
+    PUT    - Yangilash (faqat admin) — multipart/form-data yoki JSON
+    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data yoki JSON
     DELETE - O'chirish (faqat admin)
     """
+    parser_classes = [MultiPartParser, FormParser]
+
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH', 'DELETE'):
             return [IsAdminUser()]
         return [IsAuthenticated()]
 
     def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return TestQuestionDetailSerializer
         if self.request.method in ('PUT', 'PATCH'):
-            return TestQuestionWriteSerializer
+            return TestQuestionWithAnswersWriteSerializer
         return TestQuestionDetailSerializer
 
     def get_queryset(self):
-        return TestQuestion.objects.filter(is_active=True)
+        return TestQuestion.objects.filter(is_active=True).prefetch_related('answers')
+
+    @swagger_auto_schema(
+        manual_parameters=_QUESTION_FORM_PARAMS,
+        consumes=['multipart/form-data', 'application/json'],
+        responses={200: TestQuestionDetailSerializer()},
+    )
+    def update(self, request, *args, **kwargs):
+        data = _extract_multipart_data(request, json_fields=('answers',))
+        instance = self.get_object()
+        serializer = TestQuestionWithAnswersWriteSerializer(
+            instance, data=data, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response(TestQuestionDetailSerializer(question, context={'request': request}).data)
+
+    @swagger_auto_schema(
+        manual_parameters=_QUESTION_FORM_PARAMS,
+        consumes=['multipart/form-data', 'application/json'],
+        responses={200: TestQuestionDetailSerializer()},
+    )
+    def partial_update(self, request, *args, **kwargs):
+        data = _extract_multipart_data(request, json_fields=('answers',))
+        instance = self.get_object()
+        serializer = TestQuestionWithAnswersWriteSerializer(
+            instance, data=data, partial=True, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response(TestQuestionDetailSerializer(question, context={'request': request}).data)
 
 
 class TestAnswerListCreateView(generics.ListCreateAPIView):
@@ -704,6 +951,8 @@ class TestResultDetailView(generics.RetrieveAPIView):
     serializer_class = TestResultSerializer
 
     def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return TestResult.objects.none()
         return TestResult.objects.filter(user=self.request.user)
 
 

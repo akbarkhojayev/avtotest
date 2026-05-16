@@ -118,6 +118,7 @@ class TestAnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAnswer
         fields = ['id', 'answer_text', 'order']
+        ref_name = 'TestAnswerRead'
 
 
 class TestAnswerWithCorrectSerializer(serializers.ModelSerializer):
@@ -125,6 +126,7 @@ class TestAnswerWithCorrectSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAnswer
         fields = ['id', 'answer_text', 'is_correct', 'order']
+        ref_name = 'TestAnswerWithCorrect'
 
 
 class TestQuestionSerializer(serializers.ModelSerializer):
@@ -153,6 +155,58 @@ class TestAnswerWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAnswer
         fields = ['id', 'question', 'answer_text', 'is_correct', 'order']
+
+
+class AnswerInputSerializer(serializers.Serializer):
+    """Savol javoblari uchun umumiy input serializer."""
+    answer_text = serializers.CharField(max_length=500)
+    is_correct = serializers.BooleanField(default=False)
+    order = serializers.IntegerField(default=0, min_value=0)
+
+    class Meta:
+        ref_name = 'AnswerInput'
+
+
+class TestQuestionWithAnswersWriteSerializer(serializers.ModelSerializer):
+    """
+    Bitta savol + javoblar birgalikda yaratish/yangilash.
+    Multipart (form-data) da 'answers' ni JSON string sifatida yuboring:
+      answers='[{"answer_text":"A","is_correct":false},{"answer_text":"B","is_correct":true}]'
+    """
+    answers = AnswerInputSerializer(many=True, write_only=True, required=False)
+
+    class Meta:
+        model = TestQuestion
+        fields = [
+            'id', 'lesson_video', 'question_text', 'photo', 'video',
+            'difficulty', 'order', 'is_active', 'answers',
+        ]
+
+    def validate_answers(self, value):
+        if not value:
+            return value
+        correct = sum(1 for a in value if a.get('is_correct'))
+        if correct > 1:
+            raise serializers.ValidationError(
+                "Faqat bitta to'g'ri javob (is_correct: true) bo'lishi mumkin."
+            )
+        return value
+
+    def create(self, validated_data):
+        answers_data = validated_data.pop('answers', [])
+        question = TestQuestion.objects.create(**validated_data)
+        for i, ans in enumerate(answers_data, start=1):
+            TestAnswer.objects.create(
+                question=question,
+                answer_text=ans['answer_text'],
+                is_correct=ans.get('is_correct', False),
+                order=ans.get('order', i),
+            )
+        return question
+
+    def update(self, instance, validated_data):
+        validated_data.pop('answers', None)
+        return super().update(instance, validated_data)
 
 
 class UserTestAnswerSerializer(serializers.ModelSerializer):
@@ -197,12 +251,6 @@ class TestResultListSerializer(serializers.ModelSerializer):
 
 # ==================== BULK TEST YARATISH ====================
 
-class AnswerInputSerializer(serializers.Serializer):
-    answer_text = serializers.CharField(max_length=500)
-    is_correct = serializers.BooleanField(default=False)
-    order = serializers.IntegerField(default=0, min_value=0)
-
-
 class QuestionInputSerializer(serializers.Serializer):
     question_text = serializers.CharField()
     difficulty = serializers.ChoiceField(
@@ -210,6 +258,9 @@ class QuestionInputSerializer(serializers.Serializer):
     )
     order = serializers.IntegerField(default=0, min_value=0)
     answers = AnswerInputSerializer(many=True)
+
+    class Meta:
+        ref_name = 'QuestionInput'
 
     def validate_answers(self, value):
         if len(value) < 2:
