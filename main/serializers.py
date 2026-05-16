@@ -83,6 +83,10 @@ class VideoWriteSerializer(serializers.ModelSerializer):
             'video_file', 'youtube_url', 'thumbnail',
             'duration', 'order', 'is_active'
         ]
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'order': {'default': 0, 'required': False},
+        }
 # ==================== YO'L BELGILARI ====================
 
 class RoadSignSerializer(serializers.ModelSerializer):
@@ -103,6 +107,11 @@ class RoadSignWriteSerializer(serializers.ModelSerializer):
             'id', 'category', 'name', 'code',
             'description', 'image', 'order', 'is_active'
         ]
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'order': {'default': 0, 'required': False},
+            'code': {'required': False},
+        }
 
 
 # ==================== PROGRESS ====================
@@ -149,6 +158,11 @@ class TestQuestionWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestQuestion
         fields = ['id', 'lesson_video', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active']
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'order': {'default': 0, 'required': False},
+            'difficulty': {'default': 'medium', 'required': False},
+        }
 
 
 class TestAnswerWriteSerializer(serializers.ModelSerializer):
@@ -181,6 +195,11 @@ class TestQuestionWithAnswersWriteSerializer(serializers.ModelSerializer):
             'id', 'lesson_video', 'question_text', 'photo', 'video',
             'difficulty', 'order', 'is_active', 'answers',
         ]
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'order': {'default': 0, 'required': False},
+            'difficulty': {'default': 'medium', 'required': False},
+        }
 
     def validate_answers(self, value):
         if not value:
