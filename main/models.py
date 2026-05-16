@@ -91,9 +91,15 @@ class TestQuestion(models.Model):
         ('hard', 'Qiyin'),
     ]
 
+    lesson_video = models.ForeignKey(
+        'Video', on_delete=models.CASCADE,
+        related_name='test_questions',
+        null=True, blank=True,
+        verbose_name="Video dars",
+    )
     question_text = models.TextField()
-    photo = models.ImageField(upload_to='test_questions/',blank=True, null=True)
-    video = models.FileField(upload_to='test_questions/',blank=True, null=True)
+    photo = models.ImageField(upload_to='test_questions/', blank=True, null=True)
+    video = models.FileField(upload_to='test_questions/', blank=True, null=True)
     difficulty = models.CharField(max_length=10, choices=DIFFICULTY_CHOICES, default='medium')
     order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -125,6 +131,12 @@ class TestAnswer(models.Model):
 
 class TestResult(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='test_results')
+    lesson_video = models.ForeignKey(
+        'Video', on_delete=models.SET_NULL,
+        related_name='test_results',
+        null=True, blank=True,
+        verbose_name="Video dars",
+    )
     total_questions = models.PositiveIntegerField()
     correct_answers = models.PositiveIntegerField()
     score_percent = models.FloatField()

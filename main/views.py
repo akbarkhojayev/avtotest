@@ -3,7 +3,8 @@ import re
 import mimetypes
 
 from django.contrib.auth import authenticate
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Prefetch
 from django.http import StreamingHttpResponse, Http404
 from django.shortcuts import get_object_or_404
 
@@ -27,7 +28,7 @@ from .serializers import (
     TestQuestionSerializer, TestQuestionDetailSerializer, TestQuestionWriteSerializer,
     TestAnswerSerializer, TestAnswerWriteSerializer,
     TestResultSerializer, TestResultListSerializer,
-    SubmitTestSerializer,
+    SubmitTestSerializer, BulkQuestionCreateSerializer,
 )
 
 
@@ -124,6 +125,27 @@ class ProfileView(APIView):
 
 # ==================== VIDEO ====================
 
+def _video_queryset_with_prefetch(user):
+    """Video queryset — N+1 muammosini oldini olish uchun prefetch_related."""
+    return Video.objects.filter(is_active=True).prefetch_related(
+        Prefetch(
+            'progress',
+            queryset=VideoProgress.objects.filter(user=user),
+            to_attr='_user_progress_cache',
+        ),
+        Prefetch(
+            'test_questions',
+            queryset=TestQuestion.objects.filter(is_active=True),
+            to_attr='_active_test_questions_cache',
+        ),
+        Prefetch(
+            'test_results',
+            queryset=TestResult.objects.filter(user=user, passed=True),
+            to_attr='_passed_test_results_cache',
+        ),
+    )
+
+
 class VideoListCreateView(generics.ListCreateAPIView):
     """
     GET  - Barcha faol videolar
@@ -140,6 +162,8 @@ class VideoListCreateView(generics.ListCreateAPIView):
         return VideoSerializer
 
     def get_queryset(self):
+        if self.request.method == 'GET':
+            return _video_queryset_with_prefetch(self.request.user)
         return Video.objects.filter(is_active=True)
 
 
@@ -161,6 +185,8 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         return VideoSerializer
 
     def get_queryset(self):
+        if self.request.method == 'GET':
+            return _video_queryset_with_prefetch(self.request.user)
         return Video.objects.filter(is_active=True)
 
 
@@ -316,6 +342,202 @@ class RoadSignRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 # ==================== TEST ====================
 
+class VideoTestQuestionListView(generics.ListAPIView):
+    """
+    GET /api/videos/<pk>/tests/ — Video darsiga tegishli test savollari.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = TestQuestionSerializer
+
+    def get_queryset(self):
+        video = get_object_or_404(Video, pk=self.kwargs['pk'], is_active=True)
+        return TestQuestion.objects.filter(
+            lesson_video=video, is_active=True
+        ).prefetch_related('answers')
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        if not queryset.exists():
+            return Response(
+                {"detail": "Bu video uchun test mavjud emas."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+class VideoTestSubmitView(APIView):
+    """
+    POST /api/videos/<pk>/tests/submit/ — Video testi javoblarini yuborish.
+    Body: {"answers": [{"question_id": 1, "answer_id": 3}, ...]}
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(request_body=SubmitTestSerializer)
+    def post(self, request, pk):
+        video = get_object_or_404(Video, pk=pk, is_active=True)
+        serializer = SubmitTestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        answers_data = serializer.validated_data['answers']
+        questions = TestQuestion.objects.filter(
+            lesson_video=video, is_active=True
+        ).prefetch_related('answers')
+
+        total = questions.count()
+
+        if total == 0:
+            return Response(
+                {"detail": "Bu video uchun test mavjud emas."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if len(answers_data) != total:
+            return Response(
+                {
+                    "detail": (
+                        f"Barcha savollarga javob berish kerak. "
+                        f"Kutilgan: {total}, "
+                        f"Olingan: {len(answers_data)}"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        correct_count = 0
+        user_answers_list = []
+
+        for answer_data in answers_data:
+            question_id = answer_data.get('question_id')
+            answer_id = answer_data.get('answer_id')
+
+            try:
+                question = questions.get(id=question_id)
+                answer = TestAnswer.objects.get(id=answer_id, question=question)
+            except (TestQuestion.DoesNotExist, TestAnswer.DoesNotExist):
+                return Response(
+                    {
+                        "detail": (
+                            f"Savol yoki javob topilmadi. "
+                            f"Question: {question_id}, Answer: {answer_id}"
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            is_correct = answer.is_correct
+            if is_correct:
+                correct_count += 1
+
+            user_answers_list.append({
+                'question': question,
+                'answer': answer,
+                'is_correct': is_correct,
+            })
+
+        score_percent = round((correct_count / total * 100) if total > 0 else 0, 1)
+        passed = score_percent >= 70
+
+        test_result = TestResult.objects.create(
+            user=request.user,
+            lesson_video=video,
+            total_questions=total,
+            correct_answers=correct_count,
+            score_percent=score_percent,
+            passed=passed,
+        )
+
+        for ua in user_answers_list:
+            UserTestAnswer.objects.create(
+                test_result=test_result,
+                question=ua['question'],
+                selected_answer=ua['answer'],
+                is_correct=ua['is_correct'],
+            )
+
+        return Response({
+            "message": "Test yuborildi.",
+            "result": TestResultSerializer(test_result).data,
+        }, status=status.HTTP_201_CREATED)
+
+
+class VideoTestResultListView(generics.ListAPIView):
+    """
+    GET /api/videos/<pk>/tests/results/ — Foydalanuvchining bu video uchun test natijalari.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = TestResultListSerializer
+
+    def get_queryset(self):
+        video = get_object_or_404(Video, pk=self.kwargs['pk'], is_active=True)
+        return TestResult.objects.filter(
+            user=self.request.user, lesson_video=video
+        ).order_by('-completed_at')
+
+
+class BulkTestQuestionCreateView(APIView):
+    """
+    POST /api/tests/questions/bulk/
+    Bir so'rovda ko'p savol yaratish. Har bir savolga javoblar va to'g'ri javob belgilanadi.
+
+    Body:
+    {
+      "lesson_video": 1,          ← ixtiyoriy (video ID)
+      "questions": [
+        {
+          "question_text": "Savol?",
+          "difficulty": "easy|medium|hard",
+          "order": 1,
+          "answers": [
+            {"answer_text": "Javob A", "is_correct": false, "order": 1},
+            {"answer_text": "Javob B", "is_correct": true,  "order": 2}
+          ]
+        }
+      ]
+    }
+    """
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(request_body=BulkQuestionCreateSerializer)
+    def post(self, request):
+        serializer = BulkQuestionCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        lesson_video = serializer.validated_data.get('lesson_video')
+        questions_data = serializer.validated_data['questions']
+
+        created = []
+        with transaction.atomic():
+            for q_data in questions_data:
+                answers_data = q_data.pop('answers')
+                question = TestQuestion.objects.create(
+                    lesson_video=lesson_video,
+                    question_text=q_data['question_text'],
+                    difficulty=q_data['difficulty'],
+                    order=q_data['order'],
+                    is_active=True,
+                )
+                for ans in answers_data:
+                    TestAnswer.objects.create(
+                        question=question,
+                        answer_text=ans['answer_text'],
+                        is_correct=ans['is_correct'],
+                        order=ans['order'],
+                    )
+                created.append(question)
+
+        return Response(
+            {
+                "message": f"{len(created)} ta savol muvaffaqiyatli yaratildi.",
+                "video": lesson_video.title if lesson_video else None,
+                "questions": TestQuestionDetailSerializer(
+                    created, many=True, context={'request': request}
+                ).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class TestQuestionListView(generics.ListCreateAPIView):
     """
     GET  - Barcha faol test savollari
@@ -394,15 +616,17 @@ class SubmitTestView(APIView):
         answers_data = serializer.validated_data['answers']
 
         questions = TestQuestion.objects.filter(
-            is_active=True
+            is_active=True, lesson_video__isnull=True
         ).prefetch_related('answers')
 
-        if len(answers_data) != questions.count():
+        total = questions.count()
+
+        if len(answers_data) != total:
             return Response(
                 {
                     "detail": (
                         f"Barcha savollarga javob berish kerak. "
-                        f"Kutilgan: {questions.count()}, "
+                        f"Kutilgan: {total}, "
                         f"Olingan: {len(answers_data)}"
                     )
                 },
@@ -440,7 +664,6 @@ class SubmitTestView(APIView):
                 'is_correct': is_correct
             })
 
-        total = questions.count()
         score_percent = round((correct_count / total * 100) if total > 0 else 0, 1)
         passed = score_percent >= 70
 

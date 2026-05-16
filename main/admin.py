@@ -23,6 +23,15 @@ class UserSessionAdmin(admin.ModelAdmin):
 
 # ==================== VIDEO ====================
 
+class VideoTestQuestionInline(admin.StackedInline):
+    model = TestQuestion
+    extra = 0
+    show_change_link = True
+    fields = ['question_text', 'photo', 'video', 'difficulty', 'order', 'is_active']
+    verbose_name = "Test savoli"
+    verbose_name_plural = "Video testlari"
+
+
 @admin.register(Video)
 class VideoAdmin(admin.ModelAdmin):
     list_display = ['title', 'duration', 'order', 'is_active', 'thumbnail_preview', 'created_at']
@@ -31,6 +40,7 @@ class VideoAdmin(admin.ModelAdmin):
     list_editable = ['order', 'is_active']
     readonly_fields = ['created_at', 'thumbnail_preview']
     ordering = ['order', 'created_at']
+    inlines = [VideoTestQuestionInline]
     list_per_page = 20
     fieldsets = (
         ("Asosiy ma'lumot", {
@@ -106,9 +116,9 @@ class TestAnswerInline(admin.TabularInline):
 
 @admin.register(TestQuestion)
 class TestQuestionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'short_text', 'difficulty', 'order', 'is_active', 'answer_count']
-    list_filter = ['difficulty', 'is_active']
-    search_fields = ['question_text']
+    list_display = ['id', 'short_text', 'lesson_video', 'difficulty', 'order', 'is_active', 'answer_count']
+    list_filter = ['lesson_video', 'difficulty', 'is_active']
+    search_fields = ['question_text', 'lesson_video__title']
     list_editable = ['order', 'is_active']
     readonly_fields = ['created_at']
     ordering = ['order']
@@ -116,7 +126,7 @@ class TestQuestionAdmin(admin.ModelAdmin):
     list_per_page = 20
     fieldsets = (
         ("Savol", {
-            'fields': ('question_text', 'photo', 'video')
+            'fields': ('lesson_video', 'question_text', 'photo', 'video')
         }),
         ("Sozlamalar", {
             'fields': ('difficulty', 'order', 'is_active', 'created_at')
@@ -158,13 +168,13 @@ class UserTestAnswerInline(admin.TabularInline):
 @admin.register(TestResult)
 class TestResultAdmin(admin.ModelAdmin):
     list_display = [
-        'user', 'total_questions', 'correct_answers',
+        'user', 'lesson_video', 'total_questions', 'correct_answers',
         'score_percent', 'passed_badge', 'completed_at',
     ]
-    list_filter = ['passed', 'completed_at']
-    search_fields = ['user__username']
+    list_filter = ['passed', 'lesson_video', 'completed_at']
+    search_fields = ['user__username', 'lesson_video__title']
     readonly_fields = [
-        'user', 'total_questions', 'correct_answers',
+        'user', 'lesson_video', 'total_questions', 'correct_answers',
         'score_percent', 'passed', 'completed_at',
     ]
     ordering = ['-completed_at']
