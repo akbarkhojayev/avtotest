@@ -487,9 +487,30 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class VideoStreamView(APIView):
-    """Video streaming - yuklab olishni oldini olish."""
+    """
+    Range header yo'q  → JSON (stream_url bilan)
+    Range header bor   → Binary streaming (<video> player uchun)
+    """
     permission_classes = [IsAuthenticated]
 
+    @swagger_auto_schema(
+        responses={
+            200: openapi.Response(
+                description='Stream URL va video ma\'lumotlari',
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'message':    openapi.Schema(type=openapi.TYPE_STRING),
+                        'title':      openapi.Schema(type=openapi.TYPE_STRING),
+                        'duration':   openapi.Schema(type=openapi.TYPE_STRING),
+                        'stream_url': openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            ),
+            403: openapi.Response(description='Pullik dars — obuna kerak'),
+            404: openapi.Response(description='Video topilmadi'),
+        },
+    )
     def get(self, request, pk):
         video = get_object_or_404(Video, pk=pk, is_active=True)
 
@@ -508,40 +529,51 @@ class VideoStreamView(APIView):
                 )
 
         if not video.video_file:
-            return Response(
-                {"detail": "Video fayli mavjud emas."},
-                status=status.HTTP_404_NOT_FOUND
-            )
+            return Response({"detail": "Video fayli mavjud emas."}, status=status.HTTP_404_NOT_FOUND)
 
+        # ?token= yoki Range header bo'lsa — <video> player so'rovi → binary streaming
+        if request.query_params.get('token') or request.META.get('HTTP_RANGE'):
+            return self._stream(request, video)
+
+        # Oddiy API so'rov (Authorization header) → JSON response
+        token = request.META.get('HTTP_AUTHORIZATION', '').replace('Bearer ', '').strip()
+        stream_url = request.build_absolute_uri(f'/api/videos/{pk}/stream/')
+        if token:
+            stream_url += f'?token={token}'
+
+        return Response({
+            "message": "Video tayyor.",
+            "title": video.title,
+            "duration": video.duration or '',
+            "stream_url": stream_url,
+        })
+
+    def _stream(self, request, video):
         video_path = video.video_file.path
         if not os.path.exists(video_path):
             raise Http404("Video fayli topilmadi.")
 
         file_size = os.path.getsize(video_path)
         content_type, _ = mimetypes.guess_type(video_path)
-        if not content_type:
-            content_type = 'video/mp4'
+        content_type = content_type or 'video/mp4'
 
         range_header = request.META.get('HTTP_RANGE', '').strip()
-        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header) if range_header else None
+        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
 
         if range_match:
             first_byte = int(range_match.group(1))
             last_byte = int(range_match.group(2)) if range_match.group(2) else file_size - 1
             last_byte = min(last_byte, file_size - 1)
             length = last_byte - first_byte + 1
-
             response = StreamingHttpResponse(
                 self._file_iterator(video_path, offset=first_byte, length=length),
-                status=206,
-                content_type=content_type
+                status=206, content_type=content_type,
             )
             response['Content-Range'] = f'bytes {first_byte}-{last_byte}/{file_size}'
             response['Content-Length'] = str(length)
         else:
             response = StreamingHttpResponse(
-                self._file_iterator(video_path),
-                content_type=content_type
+                self._file_iterator(video_path), content_type=content_type,
             )
             response['Content-Length'] = str(file_size)
 
