@@ -1,6 +1,7 @@
 from django.urls import path
 from .views import (
-    LoginView, LogoutView, ProfileView,
+    LoginView, LogoutView, RegisterView, ProfileView,
+    AdminUserListCreateView, AdminUserDetailView,
     VideoListCreateView, VideoRetrieveUpdateDestroyView,
     VideoStreamView, UpdateProgressView,
     VideoTestQuestionListView, VideoTestSubmitView, VideoTestResultListView,
@@ -11,13 +12,19 @@ from .views import (
     TestAnswerListCreateView, TestAnswerDetailView,
     SubmitTestView, TestResultListView, TestResultDetailView,
     TestStatisticsView,
+    BookListCreateView, BookRetrieveUpdateDestroyView,
 )
 
 urlpatterns = [
     # Auth
+    path('api/register/', RegisterView.as_view(), name='register'),
     path('api/login/', LoginView.as_view(), name='login'),
     path('api/logout/', LogoutView.as_view(), name='logout'),
     path('api/profile/', ProfileView.as_view(), name='profile'),
+
+    # Foydalanuvchilar (admin)
+    path('api/users/', AdminUserListCreateView.as_view(), name='admin-user-list'),
+    path('api/users/<int:pk>/', AdminUserDetailView.as_view(), name='admin-user-detail'),
 
     # Videolar
     path('api/videos/', VideoListCreateView.as_view(), name='video-list-create'),
@@ -45,4 +52,8 @@ urlpatterns = [
     path('api/tests/results/', TestResultListView.as_view(), name='test-results'),
     path('api/tests/results/<int:pk>/', TestResultDetailView.as_view(), name='test-result-detail'),
     path('api/tests/statistics/', TestStatisticsView.as_view(), name='test-statistics'),
+
+    # Kitoblar
+    path('api/books/', BookListCreateView.as_view(), name='book-list-create'),
+    path('api/books/<int:pk>/', BookRetrieveUpdateDestroyView.as_view(), name='book-detail'),
 ]

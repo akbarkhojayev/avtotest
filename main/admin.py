@@ -4,7 +4,7 @@ from django.utils.html import format_html
 from .models import (
     UserSession, Video, VideoProgress,
     RoadSign, TestQuestion, TestAnswer,
-    TestResult, UserTestAnswer,
+    TestResult, UserTestAnswer, Book,
 )
 
 
@@ -191,3 +191,36 @@ class TestResultAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+# ==================== KITOBLAR ====================
+
+@admin.register(Book)
+class BookAdmin(admin.ModelAdmin):
+    list_display = ['title', 'year', 'price', 'pages', 'order', 'is_active', 'book_cover_preview', 'created_at']
+    list_filter = ['is_active', 'year']
+    search_fields = ['title', 'title_ru', 'description']
+    list_editable = ['order', 'is_active', 'price']
+    readonly_fields = ['created_at', 'book_cover_preview']
+    ordering = ['order', 'created_at']
+    list_per_page = 20
+    fieldsets = (
+        ("Asosiy ma'lumot", {
+            'fields': ('title', 'title_ru', 'description', 'description_ru')
+        }),
+        ("Media", {
+            'fields': ('image', 'book_cover_preview', 'file')
+        }),
+        ("Kitob ma'lumotlari", {
+            'fields': ('price', 'year', 'pages')
+        }),
+        ("Sozlamalar", {
+            'fields': ('order', 'is_active', 'created_at')
+        }),
+    )
+
+    def book_cover_preview(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" style="height:60px; border-radius:4px;" />', obj.image.url)
+        return "—"
+    book_cover_preview.short_description = "Muqova"

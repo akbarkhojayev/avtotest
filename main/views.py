@@ -4,6 +4,7 @@ import re
 import mimetypes
 
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 from django.db import models, transaction
 from django.db.models import Prefetch
 from django.http import QueryDict, StreamingHttpResponse, Http404
@@ -23,7 +24,8 @@ from .models import (
     TestQuestion, TestAnswer, TestResult, UserTestAnswer,
 )
 from .serializers import (
-    LoginSerializer, UserSerializer,
+    LoginSerializer, UserSerializer, RegisterSerializer, UserUpdateSerializer,
+    AdminUserSerializer, AdminUserCreateSerializer, AdminUserUpdateSerializer,
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
     UpdateProgressSerializer,
@@ -32,7 +34,9 @@ from .serializers import (
     TestAnswerSerializer, TestAnswerWriteSerializer,
     TestResultSerializer, TestResultListSerializer,
     SubmitTestSerializer, BulkQuestionCreateSerializer,
+    BookSerializer, BookWriteSerializer,
 )
+from .models import Book
 
 
 # ==================== SWAGGER PARAMETRLAR ====================
@@ -191,8 +195,105 @@ class LogoutView(APIView):
         return Response({"message": "Muvaffaqiyatli chiqdingiz."})
 
 
+class RegisterView(APIView):
+    """Yangi foydalanuvchi ro'yxatdan o'tkazish."""
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=RegisterSerializer)
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response({
+            "message": "Muvaffaqiyatli ro'yxatdan o'tdingiz.",
+            "user": UserSerializer(user).data,
+        }, status=status.HTTP_201_CREATED)
+
+
+class AdminUserListCreateView(generics.ListCreateAPIView):
+    """
+    GET  - Barcha foydalanuvchilar (faqat admin)
+    POST - Yangi foydalanuvchi qo'shish (faqat admin)
+    """
+    permission_classes = [IsAdminUser]
+
+    def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AdminUserSerializer
+        if self.request.method == 'POST':
+            return AdminUserCreateSerializer
+        return AdminUserSerializer
+
+    def get_queryset(self):
+        queryset = User.objects.all().order_by('-date_joined')
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                models.Q(username__icontains=search) |
+                models.Q(first_name__icontains=search) |
+                models.Q(last_name__icontains=search) |
+                models.Q(email__icontains=search)
+            )
+        return queryset
+
+    @swagger_auto_schema(request_body=AdminUserCreateSerializer, responses={201: AdminUserSerializer()})
+    def create(self, request, *args, **kwargs):
+        serializer = AdminUserCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(AdminUserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    - Foydalanuvchi ma'lumotlari (faqat admin)
+    PATCH  - Qisman yangilash (faqat admin)
+    PUT    - To'liq yangilash (faqat admin)
+    DELETE - O'chirish (faqat admin)
+    """
+    permission_classes = [IsAdminUser]
+    queryset = User.objects.all()
+
+    def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return AdminUserSerializer
+        if self.request.method in ('PUT', 'PATCH'):
+            return AdminUserUpdateSerializer
+        return AdminUserSerializer
+
+    @swagger_auto_schema(request_body=AdminUserUpdateSerializer, responses={200: AdminUserSerializer()})
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = AdminUserUpdateSerializer(instance, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(AdminUserSerializer(user).data)
+
+    @swagger_auto_schema(request_body=AdminUserUpdateSerializer, responses={200: AdminUserSerializer()})
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = AdminUserUpdateSerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(AdminUserSerializer(user).data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if instance == request.user:
+            return Response(
+                {"detail": "O'z hisobingizni bu yerdan o'chira olmaysiz."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ProfileView(APIView):
-    """Foydalanuvchi profili va statistikasi."""
+    """
+    GET    - Profil va statistika
+    PATCH  - Profilni yangilash (ism, email, parol)
+    DELETE - Hisobni o'chirish
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -207,6 +308,39 @@ class ProfileView(APIView):
                 "progress_percent": round((completed / total * 100) if total > 0 else 0, 1)
             }
         })
+
+    @swagger_auto_schema(request_body=UserUpdateSerializer)
+    def patch(self, request):
+        serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response({
+            "message": "Profil yangilandi.",
+            "user": UserSerializer(user).data,
+        })
+
+    @swagger_auto_schema(request_body=UserUpdateSerializer)
+    def put(self, request):
+        serializer = UserUpdateSerializer(request.user, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response({
+            "message": "Profil yangilandi.",
+            "user": UserSerializer(user).data,
+        })
+
+    def delete(self, request):
+        user = request.user
+        try:
+            session = UserSession.objects.get(user=user)
+            session.delete()
+        except UserSession.DoesNotExist:
+            pass
+        user.delete()
+        return Response(
+            {"message": "Hisobingiz muvaffaqiyatli o'chirildi."},
+            status=status.HTTP_204_NO_CONTENT,
+        )
 
 
 # ==================== VIDEO ====================
@@ -979,3 +1113,104 @@ class TestStatisticsView(APIView):
                 (passed_tests / total_tests * 100) if total_tests > 0 else 0, 1
             ),
         })
+
+
+# ==================== KITOBLAR ====================
+
+_BOOK_FORM_PARAMS = [
+    openapi.Parameter('title',          openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True,  description='Sarlavha (UZ)'),
+    openapi.Parameter('title_ru',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Sarlavha (RU)'),
+    openapi.Parameter('description',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (UZ)'),
+    openapi.Parameter('description_ru', openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (RU)'),
+    openapi.Parameter('price',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0,      description='Narxi (so\'mda)'),
+    openapi.Parameter('image',          openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Muqova rasmi'),
+    openapi.Parameter('file',           openapi.IN_FORM, type=openapi.TYPE_FILE,    required=True,  description='Kitob fayli (PDF)'),
+    openapi.Parameter('year',           openapi.IN_FORM, type=openapi.TYPE_INTEGER, required=True,  description='Nashr yili, masalan: 2024'),
+    openapi.Parameter('pages',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0,      description='Sahifalar soni'),
+    openapi.Parameter('order',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0),
+    openapi.Parameter('is_active',      openapi.IN_FORM, type=openapi.TYPE_BOOLEAN, default=True),
+]
+
+
+class BookListCreateView(generics.ListCreateAPIView):
+    """
+    GET  - Faol kitoblar ro'yxati
+    POST - Yangi kitob qo'shish (faqat admin) — multipart/form-data
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return BookSerializer
+        if self.request.method == 'POST':
+            return BookWriteSerializer
+        return BookSerializer
+
+    def get_queryset(self):
+        return Book.objects.filter(is_active=True)
+
+    @swagger_auto_schema(
+        operation_description="Yangi kitob qo'shish (faqat admin). multipart/form-data",
+        manual_parameters=_BOOK_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={201: BookSerializer()},
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = BookWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        book = serializer.save()
+        return Response(BookSerializer(book).data, status=status.HTTP_201_CREATED)
+
+
+class BookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    - Kitob tafsilotlari
+    PUT    - Yangilash (faqat admin)
+    PATCH  - Qisman yangilash (faqat admin)
+    DELETE - O'chirish (faqat admin)
+    """
+    parser_classes = [MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        if self.request.method in ('PUT', 'PATCH', 'DELETE'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return BookSerializer
+        if self.request.method in ('PUT', 'PATCH'):
+            return BookWriteSerializer
+        return BookSerializer
+
+    def get_queryset(self):
+        return Book.objects.filter(is_active=True)
+
+    @swagger_auto_schema(
+        manual_parameters=_BOOK_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={200: BookSerializer()},
+    )
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = BookWriteSerializer(instance, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        book = serializer.save()
+        return Response(BookSerializer(book).data)
+
+    @swagger_auto_schema(
+        manual_parameters=_BOOK_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={200: BookSerializer()},
+    )
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = BookWriteSerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        book = serializer.save()
+        return Response(BookSerializer(book).data)

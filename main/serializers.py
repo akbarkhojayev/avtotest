@@ -2,7 +2,8 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
-    TestQuestion, TestAnswer, TestResult, UserTestAnswer
+    TestQuestion, TestAnswer, TestResult, UserTestAnswer,
+    Book,
 )
 
 
@@ -14,10 +15,119 @@ class LoginSerializer(serializers.Serializer):
     device_id = serializers.CharField(help_text="Qurilma identifikatori (browser fingerprint)")
 
 
+class RegisterSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6)
+    password2 = serializers.CharField(write_only=True, label="Parolni tasdiqlang")
+
+    class Meta:
+        model = User
+        fields = ['username', 'password', 'password2', 'first_name', 'last_name', 'email']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'email': {'required': False},
+        }
+
+    def validate(self, data):
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password2": "Parollar mos kelmaydi."})
+        return data
+
+    def create(self, validated_data):
+        validated_data.pop('password2')
+        password = validated_data.pop('password')
+        return User.objects.create_user(password=password, **validated_data)
+
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6, required=False, allow_blank=True)
+    password2 = serializers.CharField(write_only=True, required=False, allow_blank=True, label="Parolni tasdiqlang")
+
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email', 'password', 'password2']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'email': {'required': False},
+        }
+
+    def validate(self, data):
+        password = data.get('password', '').strip()
+        password2 = data.get('password2', '').strip()
+        if password or password2:
+            if password != password2:
+                raise serializers.ValidationError({"password2": "Parollar mos kelmaydi."})
+            if len(password) < 6:
+                raise serializers.ValidationError({"password": "Parol kamida 6 ta belgidan iborat bo'lishi kerak."})
+        return data
+
+    def update(self, instance, validated_data):
+        validated_data.pop('password2', None)
+        password = validated_data.pop('password', '').strip()
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'first_name', 'last_name', 'email']
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    """Admin uchun - is_active va is_staff ko'rsatadi"""
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'is_active', 'is_staff', 'date_joined']
+        read_only_fields = ['date_joined']
+
+
+class AdminUserCreateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6)
+
+    class Meta:
+        model = User
+        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active', 'is_staff']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'email': {'required': False},
+            'is_active': {'default': True, 'required': False},
+            'is_staff': {'default': False, 'required': False},
+        }
+
+    def create(self, validated_data):
+        password = validated_data.pop('password')
+        return User.objects.create_user(password=password, **validated_data)
+
+
+class AdminUserUpdateSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6, required=False, allow_blank=True)
+
+    class Meta:
+        model = User
+        fields = ['first_name', 'last_name', 'email', 'is_active', 'is_staff', 'password']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'email': {'required': False},
+            'is_active': {'required': False},
+            'is_staff': {'required': False},
+        }
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', '').strip()
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
 
 
 class VideoProgressSerializer(serializers.ModelSerializer):
@@ -325,3 +435,33 @@ class SubmitTestSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Javoblar bo'sh bo'lishi mumkin emas.")
         return value
+
+
+# ==================== KITOBLAR ====================
+
+class BookSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Book
+        fields = [
+            'id', 'title', 'title_ru', 'description', 'description_ru',
+            'price', 'image', 'file', 'year', 'pages', 'order', 'created_at',
+        ]
+
+
+class BookWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Book
+        fields = [
+            'id', 'title', 'title_ru', 'description', 'description_ru',
+            'price', 'image', 'file', 'year', 'pages', 'order', 'is_active',
+        ]
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'order': {'default': 0, 'required': False},
+            'price': {'default': 0, 'required': False},
+            'pages': {'default': 0, 'required': False},
+            'image': {'required': False},
+            'title_ru': {'required': False},
+            'description': {'required': False},
+            'description_ru': {'required': False},
+        }
