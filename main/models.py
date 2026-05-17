@@ -2,7 +2,13 @@ from django.db import models
 from django.contrib.auth.models import User
 
 class UserSession(models.Model):
+    ROLE_CHOICES = [
+        ('user', 'Foydalanuvchi'),
+        ('admin', 'Admin'),
+    ]
+
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='session_device')
+    role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='user')
     device_id = models.CharField(max_length=255, blank=True, null=True)
     last_login_ip = models.GenericIPAddressField(blank=True, null=True)
     token_jti = models.CharField(max_length=255, blank=True, null=True)

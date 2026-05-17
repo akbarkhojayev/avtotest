@@ -160,11 +160,16 @@ class LoginView(APIView):
         access_token = refresh.access_token
         token_jti = str(access_token.get('jti', ''))
 
-        session, created = UserSession.objects.get_or_create(user=user)
+        default_role = 'admin' if user.is_staff else 'user'
+        session, created = UserSession.objects.get_or_create(
+            user=user, defaults={'role': default_role}
+        )
         old_device = session.device_id
         session.device_id = device_id
         session.last_login_ip = get_client_ip(request)
         session.token_jti = token_jti
+        if created:
+            session.role = default_role
         session.save()
 
         message = "Muvaffaqiyatli kirdingiz."

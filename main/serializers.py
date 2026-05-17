@@ -36,7 +36,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('password2')
         password = validated_data.pop('password')
-        return User.objects.create_user(password=password, **validated_data)
+        user = User.objects.create_user(password=password, **validated_data)
+        UserSession.objects.get_or_create(user=user, defaults={'role': 'user'})
+        return user
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -74,58 +76,84 @@ class UserUpdateSerializer(serializers.ModelSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    role = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role']
+
+    def get_role(self, obj):
+        try:
+            return obj.session_device.role
+        except Exception:
+            return 'user'
 
 
 class AdminUserSerializer(serializers.ModelSerializer):
-    """Admin uchun - is_active va is_staff ko'rsatadi"""
+    role = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'is_active', 'is_staff', 'date_joined']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'is_active', 'date_joined']
         read_only_fields = ['date_joined']
+
+    def get_role(self, obj):
+        try:
+            return obj.session_device.role
+        except Exception:
+            return 'user'
 
 
 class AdminUserCreateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6)
+    role = serializers.ChoiceField(choices=['user', 'admin'], default='user', required=False)
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active', 'is_staff']
+        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active', 'role']
         extra_kwargs = {
             'first_name': {'required': False},
             'last_name': {'required': False},
             'email': {'required': False},
             'is_active': {'default': True, 'required': False},
-            'is_staff': {'default': False, 'required': False},
         }
 
     def create(self, validated_data):
+        role = validated_data.pop('role', 'user')
         password = validated_data.pop('password')
-        return User.objects.create_user(password=password, **validated_data)
+        if role == 'admin':
+            validated_data['is_staff'] = True
+        user = User.objects.create_user(password=password, **validated_data)
+        UserSession.objects.create(user=user, role=role)
+        return user
 
 
 class AdminUserUpdateSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=6, required=False, allow_blank=True)
+    role = serializers.ChoiceField(choices=['user', 'admin'], required=False)
 
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'email', 'is_active', 'is_staff', 'password']
+        fields = ['first_name', 'last_name', 'email', 'is_active', 'password', 'role']
         extra_kwargs = {
             'first_name': {'required': False},
             'last_name': {'required': False},
             'email': {'required': False},
             'is_active': {'required': False},
-            'is_staff': {'required': False},
         }
 
     def update(self, instance, validated_data):
+        role = validated_data.pop('role', None)
         password = validated_data.pop('password', '').strip()
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if password:
             instance.set_password(password)
+        if role is not None:
+            instance.is_staff = (role == 'admin')
+            session, _ = UserSession.objects.get_or_create(user=instance)
+            session.role = role
+            session.save()
         instance.save()
         return instance
 
