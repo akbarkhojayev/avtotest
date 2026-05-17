@@ -34,6 +34,7 @@ class Video(models.Model):
     duration = models.CharField(max_length=20, blank=True, help_text="Masalan: 10:30")
 
     order = models.PositiveIntegerField(default=0)
+    is_paid = models.BooleanField(default=False, help_text="Pullik dars bo'lsa True")
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -170,6 +171,55 @@ class UserTestAnswer(models.Model):
     class Meta:
         verbose_name = "Foydalanuvchi Javob"
         verbose_name_plural = "Foydalanuvchi Javoblari"
+
+class UserSubscription(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='subscription')
+    expires_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} — {self.expires_at.strftime('%d.%m.%Y')}"
+
+    @property
+    def is_active(self):
+        from django.utils import timezone
+        return self.expires_at > timezone.now()
+
+    class Meta:
+        verbose_name = "Obuna"
+        verbose_name_plural = "Obunalar"
+
+
+class PaymentRequest(models.Model):
+    STATUS_CHOICES = [
+        ('pending',  'Kutilmoqda'),
+        ('approved', 'Tasdiqlandi'),
+        ('rejected', 'Rad etildi'),
+    ]
+
+    user            = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_requests')
+    amount          = models.PositiveIntegerField(help_text="To'langan summa (so'mda)")
+    receipt         = models.ImageField(upload_to='receipts/', help_text="To'lov cheki rasmi")
+    comment         = models.TextField(blank=True, help_text="Foydalanuvchi izohi (ixtiyoriy)")
+    status          = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    admin_note      = models.TextField(blank=True, help_text="Admin izohi")
+    subscription_days = models.PositiveIntegerField(default=30, help_text="Necha kunlik obuna berilsin")
+    reviewed_by     = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reviewed_payments', verbose_name="Tekshirgan admin"
+    )
+    reviewed_at     = models.DateTimeField(null=True, blank=True)
+    created_at      = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} — {self.amount:,} so'm ({self.get_status_display()})"
+
+    class Meta:
+        verbose_name = "To'lov so'rovi"
+        verbose_name_plural = "To'lov so'rovlari"
+        ordering = ['-created_at']
+
 
 class Book(models.Model):
     title = models.CharField(max_length=200)

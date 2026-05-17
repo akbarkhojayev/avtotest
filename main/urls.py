@@ -13,6 +13,8 @@ from .views import (
     SubmitTestView, TestResultListView, TestResultDetailView,
     TestStatisticsView,
     BookListCreateView, BookRetrieveUpdateDestroyView,
+    PaymentRequestCreateView, SubscriptionStatusView,
+    PaymentAdminListView, PaymentReviewView,
 )
 
 urlpatterns = [
@@ -56,4 +58,10 @@ urlpatterns = [
     # Kitoblar
     path('api/books/', BookListCreateView.as_view(), name='book-list-create'),
     path('api/books/<int:pk>/', BookRetrieveUpdateDestroyView.as_view(), name='book-detail'),
+
+    # To'lov
+    path('api/payments/', PaymentRequestCreateView.as_view(), name='payment-list-create'),
+    path('api/payments/subscription/', SubscriptionStatusView.as_view(), name='subscription-status'),
+    path('api/payments/admin/', PaymentAdminListView.as_view(), name='payment-admin-list'),
+    path('api/payments/<int:pk>/review/', PaymentReviewView.as_view(), name='payment-review'),
 ]

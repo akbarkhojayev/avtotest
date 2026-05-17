@@ -5,6 +5,7 @@ from .models import (
     UserSession, Video, VideoProgress,
     RoadSign, TestQuestion, TestAnswer,
     TestResult, UserTestAnswer, Book,
+    UserSubscription, PaymentRequest,
 )
 
 
@@ -36,10 +37,10 @@ class VideoTestQuestionInline(admin.StackedInline):
 
 @admin.register(Video)
 class VideoAdmin(admin.ModelAdmin):
-    list_display = ['title', 'duration', 'order', 'is_active', 'thumbnail_preview', 'created_at']
-    list_filter = ['is_active']
+    list_display = ['title', 'duration', 'order', 'is_paid', 'is_active', 'thumbnail_preview', 'created_at']
+    list_filter = ['is_active', 'is_paid']
     search_fields = ['title', 'title_ru', 'description']
-    list_editable = ['order', 'is_active']
+    list_editable = ['order', 'is_paid', 'is_active']
     readonly_fields = ['created_at', 'thumbnail_preview']
     ordering = ['order', 'created_at']
     inlines = [VideoTestQuestionInline]
@@ -52,7 +53,7 @@ class VideoAdmin(admin.ModelAdmin):
             'fields': ('video_file', 'youtube_url', 'thumbnail', 'thumbnail_preview', 'duration')
         }),
         ("Sozlamalar", {
-            'fields': ('order', 'is_active', 'created_at')
+            'fields': ('order', 'is_paid', 'is_active', 'created_at')
         }),
     )
 
@@ -226,3 +227,52 @@ class BookAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="height:60px; border-radius:4px;" />', obj.image.url)
         return "—"
     book_cover_preview.short_description = "Muqova"
+
+
+# ==================== OBUNA ====================
+
+@admin.register(UserSubscription)
+class UserSubscriptionAdmin(admin.ModelAdmin):
+    list_display = ['user', 'expires_at', 'subscription_active', 'created_at']
+    search_fields = ['user__username']
+    readonly_fields = ['created_at', 'updated_at']
+    list_per_page = 25
+
+    def subscription_active(self, obj):
+        if obj.is_active:
+            return format_html('<span style="color:#28a745;font-weight:bold;">✔ Faol</span>')
+        return format_html('<span style="color:#dc3545;">✘ Tugagan</span>')
+    subscription_active.short_description = "Holati"
+
+
+@admin.register(PaymentRequest)
+class PaymentRequestAdmin(admin.ModelAdmin):
+    list_display = ['user', 'amount', 'status_badge', 'subscription_days', 'reviewed_by', 'created_at']
+    list_filter = ['status', 'created_at']
+    search_fields = ['user__username']
+    readonly_fields = ['user', 'amount', 'receipt', 'comment', 'created_at', 'reviewed_at', 'receipt_preview']
+    ordering = ['-created_at']
+    list_per_page = 25
+    fieldsets = (
+        ("Foydalanuvchi", {
+            'fields': ('user', 'amount', 'comment', 'receipt', 'receipt_preview', 'created_at')
+        }),
+        ("Admin tekshiruvi", {
+            'fields': ('status', 'admin_note', 'subscription_days', 'reviewed_by', 'reviewed_at')
+        }),
+    )
+
+    def status_badge(self, obj):
+        colors = {'pending': '#f39c12', 'approved': '#28a745', 'rejected': '#dc3545'}
+        color = colors.get(obj.status, '#888')
+        return format_html(
+            '<span style="color:{};font-weight:bold;">{}</span>',
+            color, obj.get_status_display()
+        )
+    status_badge.short_description = "Holat"
+
+    def receipt_preview(self, obj):
+        if obj.receipt:
+            return format_html('<img src="{}" style="max-height:200px; border-radius:4px;" />', obj.receipt.url)
+        return "—"
+    receipt_preview.short_description = "Chek rasmi"

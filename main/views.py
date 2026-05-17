@@ -19,9 +19,12 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
+from django.utils import timezone
+
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
     TestQuestion, TestAnswer, TestResult, UserTestAnswer,
+    Book, PaymentRequest, UserSubscription,
 )
 from .serializers import (
     LoginSerializer, UserSerializer, RegisterSerializer, UserUpdateSerializer,
@@ -35,8 +38,10 @@ from .serializers import (
     TestResultSerializer, TestResultListSerializer,
     SubmitTestSerializer, BulkQuestionCreateSerializer,
     BookSerializer, BookWriteSerializer,
+    SubscriptionSerializer,
+    PaymentRequestCreateSerializer, PaymentRequestSerializer,
+    PaymentRequestAdminSerializer, PaymentReviewSerializer,
 )
-from .models import Book
 
 
 # ==================== SWAGGER PARAMETRLAR ====================
@@ -46,11 +51,12 @@ _VIDEO_FORM_PARAMS = [
     openapi.Parameter('title_ru',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Sarlavha (RU)'),
     openapi.Parameter('description',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (UZ)'),
     openapi.Parameter('description_ru', openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (RU)'),
-    openapi.Parameter('video_file',     openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Video fayli (mp4)'),
-    openapi.Parameter('youtube_url',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='YouTube embed URL'),
+    openapi.Parameter('video_file',     openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Video fayli (mp4) — video_file yoki youtube_url dan biri shart'),
+    openapi.Parameter('youtube_url',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='YouTube embed URL — video_file yoki youtube_url dan biri shart'),
     openapi.Parameter('thumbnail',      openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Muqova rasmi'),
     openapi.Parameter('duration',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Davomiyligi, masalan: 10:30'),
     openapi.Parameter('order',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0),
+    openapi.Parameter('is_paid',        openapi.IN_FORM, type=openapi.TYPE_BOOLEAN, default=False,  description='Pullik dars (true) yoki Tekin (false)'),
     openapi.Parameter('is_active',      openapi.IN_FORM, type=openapi.TYPE_BOOLEAN, default=True),
 ]
 
@@ -385,7 +391,7 @@ class VideoListCreateView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if getattr(self, 'swagger_fake_view', False):
-            return VideoSerializer
+            return VideoWriteSerializer
         if self.request.method == 'POST':
             return VideoWriteSerializer
         return VideoSerializer
@@ -398,13 +404,26 @@ class VideoListCreateView(generics.ListCreateAPIView):
         return Video.objects.filter(is_active=True)
 
     @swagger_auto_schema(
+        operation_description="Videolar ro'yxati",
+        responses={200: VideoSerializer(many=True)},
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @swagger_auto_schema(
         operation_description="Yangi video qo'shish (faqat admin). video_file yoki youtube_url dan biri bo'lishi kerak.",
         manual_parameters=_VIDEO_FORM_PARAMS,
         consumes=['multipart/form-data'],
         responses={201: VideoSerializer()},
     )
     def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+        serializer = VideoWriteSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        video = serializer.save()
+        return Response(
+            VideoSerializer(video, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -423,7 +442,7 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_serializer_class(self):
         if getattr(self, 'swagger_fake_view', False):
-            return VideoSerializer
+            return VideoWriteSerializer
         if self.request.method in ('PUT', 'PATCH'):
             return VideoWriteSerializer
         return VideoSerializer
@@ -436,12 +455,23 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         return Video.objects.filter(is_active=True)
 
     @swagger_auto_schema(
+        operation_description="Video ma'lumotlari",
+        responses={200: VideoSerializer()},
+    )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @swagger_auto_schema(
         manual_parameters=_VIDEO_FORM_PARAMS,
         consumes=['multipart/form-data'],
         responses={200: VideoSerializer()},
     )
     def update(self, request, *args, **kwargs):
-        return super().update(request, *args, **kwargs)
+        instance = self.get_object()
+        serializer = VideoWriteSerializer(instance, data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        video = serializer.save()
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
     @swagger_auto_schema(
         manual_parameters=_VIDEO_FORM_PARAMS,
@@ -449,7 +479,11 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         responses={200: VideoSerializer()},
     )
     def partial_update(self, request, *args, **kwargs):
-        return super().partial_update(request, *args, **kwargs)
+        instance = self.get_object()
+        serializer = VideoWriteSerializer(instance, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        video = serializer.save()
+        return Response(VideoSerializer(video, context={'request': request}).data)
 
 
 class VideoStreamView(APIView):
@@ -458,6 +492,20 @@ class VideoStreamView(APIView):
 
     def get(self, request, pk):
         video = get_object_or_404(Video, pk=pk, is_active=True)
+
+        if video.is_paid and not request.user.is_staff:
+            try:
+                sub = request.user.subscription
+                if not sub.is_active:
+                    return Response(
+                        {"detail": "Bu dars pullik. Obuna sotib oling."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            except UserSubscription.DoesNotExist:
+                return Response(
+                    {"detail": "Bu dars pullik. Obuna sotib oling."},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
         if not video.video_file:
             return Response(
@@ -1219,3 +1267,147 @@ class BookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         serializer.is_valid(raise_exception=True)
         book = serializer.save()
         return Response(BookSerializer(book).data)
+
+
+# ==================== TO'LOV ====================
+
+_PAYMENT_FORM_PARAMS = [
+    openapi.Parameter('amount',  openapi.IN_FORM, type=openapi.TYPE_INTEGER, required=True, description="To'langan summa (so'mda)"),
+    openapi.Parameter('receipt', openapi.IN_FORM, type=openapi.TYPE_FILE,    required=True, description="To'lov cheki rasmi"),
+    openapi.Parameter('comment', openapi.IN_FORM, type=openapi.TYPE_STRING,                description="Izoh (ixtiyoriy)"),
+]
+
+
+class PaymentRequestCreateView(APIView):
+    """
+    POST /api/payments/ — Foydalanuvchi to'lov cheki yuboradi.
+    GET  /api/payments/ — Foydalanuvchi o'z so'rovlarini ko'radi.
+    """
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @swagger_auto_schema(
+        operation_description="Foydalanuvchi o'z to'lov so'rovlarini ko'radi.",
+        responses={200: PaymentRequestSerializer(many=True)},
+    )
+    def get(self, request):
+        qs = PaymentRequest.objects.filter(user=request.user)
+        return Response(PaymentRequestSerializer(qs, many=True, context={'request': request}).data)
+
+    @swagger_auto_schema(
+        operation_description="To'lov cheki yuborish. multipart/form-data",
+        manual_parameters=_PAYMENT_FORM_PARAMS,
+        consumes=['multipart/form-data'],
+        responses={201: PaymentRequestSerializer()},
+    )
+    def post(self, request):
+        serializer = PaymentRequestCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save(user=request.user)
+        return Response(
+            PaymentRequestSerializer(payment, context={'request': request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SubscriptionStatusView(APIView):
+    """
+    GET /api/payments/subscription/ — Foydalanuvchi obuna holatini ko'radi.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            sub = request.user.subscription
+            return Response(SubscriptionSerializer(sub).data)
+        except UserSubscription.DoesNotExist:
+            return Response({"detail": "Faol obuna mavjud emas.", "is_active": False})
+
+
+class PaymentAdminListView(generics.ListAPIView):
+    """
+    GET /api/payments/admin/ — Admin barcha to'lov so'rovlarini ko'radi.
+    ?status=pending|approved|rejected filtri mavjud.
+    """
+    permission_classes = [IsAdminUser]
+    serializer_class = PaymentRequestAdminSerializer
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return PaymentRequest.objects.none()
+        qs = PaymentRequest.objects.select_related('user', 'reviewed_by').all()
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        return qs
+
+
+class PaymentReviewView(APIView):
+    """
+    POST /api/payments/<id>/review/ — Admin to'lovni tasdiqlaydi yoki rad etadi.
+    action: approve | reject
+    """
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        request_body=PaymentReviewSerializer,
+        responses={200: openapi.Response(
+            description="Natija",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'detail': openapi.Schema(type=openapi.TYPE_STRING),
+                    'payment': openapi.Schema(type=openapi.TYPE_OBJECT),
+                },
+            )
+        )},
+    )
+    def post(self, request, pk):
+        payment = get_object_or_404(PaymentRequest, pk=pk)
+
+        if payment.status != 'pending':
+            return Response(
+                {"detail": "Bu so'rov allaqachon ko'rib chiqilgan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = PaymentReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        action = serializer.validated_data['action']
+        admin_note = serializer.validated_data.get('admin_note', '')
+        subscription_days = serializer.validated_data.get('subscription_days', 30)
+
+        payment.admin_note = admin_note
+        payment.reviewed_by = request.user
+        payment.reviewed_at = timezone.now()
+
+        if action == 'approve':
+            payment.status = 'approved'
+            payment.subscription_days = subscription_days
+            payment.save()
+
+            try:
+                sub = payment.user.subscription
+                if sub.expires_at > timezone.now():
+                    sub.expires_at += timezone.timedelta(days=subscription_days)
+                else:
+                    sub.expires_at = timezone.now() + timezone.timedelta(days=subscription_days)
+                sub.save()
+            except UserSubscription.DoesNotExist:
+                UserSubscription.objects.create(
+                    user=payment.user,
+                    expires_at=timezone.now() + timezone.timedelta(days=subscription_days),
+                )
+
+            return Response({
+                "detail": f"Tasdiqlandi. Foydalanuvchiga {subscription_days} kunlik obuna berildi.",
+                "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+            })
+        else:
+            payment.status = 'rejected'
+            payment.save()
+            return Response({
+                "detail": "Rad etildi.",
+                "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+            })

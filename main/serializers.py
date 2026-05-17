@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
     TestQuestion, TestAnswer, TestResult, UserTestAnswer,
-    Book,
+    Book, PaymentRequest, UserSubscription,
 )
 
 
@@ -174,7 +174,7 @@ class VideoSerializer(serializers.ModelSerializer):
         model = Video
         fields = [
             'id', 'title', 'description', 'thumbnail',
-            'duration', 'order', 'youtube_url',
+            'duration', 'order', 'youtube_url', 'is_paid',
             'video_url', 'user_progress',
             'has_test', 'test_passed',
         ]
@@ -219,10 +219,11 @@ class VideoWriteSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'title_ru', 'description', 'description_ru',
             'video_file', 'youtube_url', 'thumbnail',
-            'duration', 'order', 'is_active'
+            'duration', 'order', 'is_paid', 'is_active'
         ]
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
+            'is_paid': {'default': False, 'required': False},
             'order': {'default': 0, 'required': False},
         }
 # ==================== YO'L BELGILARI ====================
@@ -493,3 +494,63 @@ class BookWriteSerializer(serializers.ModelSerializer):
             'description': {'required': False},
             'description_ru': {'required': False},
         }
+
+
+# ==================== TO'LOV ====================
+
+class SubscriptionSerializer(serializers.ModelSerializer):
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = UserSubscription
+        fields = ['id', 'expires_at', 'is_active', 'created_at']
+
+
+class PaymentRequestCreateSerializer(serializers.ModelSerializer):
+    """Foydalanuvchi chek yuboradi"""
+    class Meta:
+        model = PaymentRequest
+        fields = ['id', 'amount', 'receipt', 'comment']
+        extra_kwargs = {
+            'comment': {'required': False},
+        }
+
+
+class PaymentRequestSerializer(serializers.ModelSerializer):
+    """Foydalanuvchi o'z so'rovlarini ko'radi"""
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = PaymentRequest
+        fields = [
+            'id', 'amount', 'receipt', 'comment',
+            'status', 'status_display', 'admin_note',
+            'subscription_days', 'created_at',
+        ]
+
+
+class PaymentRequestAdminSerializer(serializers.ModelSerializer):
+    """Admin barcha so'rovlarni ko'radi"""
+    status_display  = serializers.CharField(source='get_status_display', read_only=True)
+    username        = serializers.CharField(source='user.username', read_only=True)
+    full_name       = serializers.SerializerMethodField()
+    reviewed_by_name = serializers.CharField(source='reviewed_by.username', read_only=True, allow_null=True)
+
+    class Meta:
+        model = PaymentRequest
+        fields = [
+            'id', 'username', 'full_name', 'amount', 'receipt', 'comment',
+            'status', 'status_display', 'admin_note', 'subscription_days',
+            'reviewed_by_name', 'reviewed_at', 'created_at',
+        ]
+
+    def get_full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+
+
+class PaymentReviewSerializer(serializers.Serializer):
+    """Admin tasdiqlash yoki rad etish uchun"""
+    action = serializers.ChoiceField(choices=['approve', 'reject'])
+    admin_note = serializers.CharField(required=False, allow_blank=True)
+    subscription_days = serializers.IntegerField(min_value=1, default=30, required=False)
+
