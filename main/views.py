@@ -11,7 +11,7 @@ from django.http import QueryDict, StreamingHttpResponse, Http404
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status, generics
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -36,7 +36,7 @@ from .serializers import (
     TestQuestionWriteSerializer, TestQuestionWithAnswersWriteSerializer,
     TestAnswerSerializer, TestAnswerWriteSerializer,
     TestResultSerializer, TestResultListSerializer,
-    SubmitTestSerializer, BulkQuestionCreateSerializer,
+    SubmitTestSerializer,
     BookSerializer, BookWriteSerializer,
     SubscriptionSerializer,
     PaymentRequestCreateSerializer, PaymentRequestSerializer,
@@ -84,26 +84,6 @@ _QUESTION_FORM_PARAMS = [
     ),
 ]
 
-_BULK_QUESTION_FORM_PARAMS = [
-    openapi.Parameter(
-        'lesson_video', openapi.IN_FORM, type=openapi.TYPE_INTEGER,
-        description='Video ID (ixtiyoriy)',
-    ),
-    openapi.Parameter(
-        'questions', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True,
-        description=(
-            'JSON array:\n'
-            '[{"question_text":"Savol?","difficulty":"medium","order":1,'
-            '"answers":[{"answer_text":"A","is_correct":false},{"answer_text":"B","is_correct":true}]}]'
-        ),
-    ),
-    openapi.Parameter('photo_0',          openapi.IN_FORM, type=openapi.TYPE_FILE, description='0-savol rasmi'),
-    openapi.Parameter('photo_1',          openapi.IN_FORM, type=openapi.TYPE_FILE, description='1-savol rasmi'),
-    openapi.Parameter('photo_2',          openapi.IN_FORM, type=openapi.TYPE_FILE, description='2-savol rasmi'),
-    openapi.Parameter('question_video_0', openapi.IN_FORM, type=openapi.TYPE_FILE, description='0-savol video klipi'),
-    openapi.Parameter('question_video_1', openapi.IN_FORM, type=openapi.TYPE_FILE, description='1-savol video klipi'),
-    openapi.Parameter('question_video_2', openapi.IN_FORM, type=openapi.TYPE_FILE, description='2-savol video klipi'),
-]
 
 
 # ==================== YORDAMCHI FUNKSIYALAR ====================
@@ -111,6 +91,7 @@ _BULK_QUESTION_FORM_PARAMS = [
 def _extract_multipart_data(request, json_fields=()):
     """
     QueryDict (multipart) dan JSON string maydonlarni parse qilib dict qaytaradi.
+    Fayllarni ham (request.FILES) dict ga qo'shadi.
     JSON so'rovlarda o'zgartirmasdan qaytaradi.
     """
     if not isinstance(request.data, QueryDict):
@@ -125,6 +106,11 @@ def _extract_multipart_data(request, json_fields=()):
             except json.JSONDecodeError:
                 pass
         data[key] = val
+
+    # Fayllarni qo'shish (photo, video, image, ...)
+    for key, file in request.FILES.items():
+        data[key] = file
+
     return data
 
 
@@ -854,96 +840,6 @@ class VideoTestResultListView(generics.ListAPIView):
         ).order_by('-completed_at')
 
 
-class BulkTestQuestionCreateView(APIView):
-    """
-    POST /api/tests/questions/bulk/
-    JSON yoki multipart/form-data orqali bir so'rovda ko'p savol yaratish.
-    Rasmlar: photo_0, photo_1, ... | Video kliplar: question_video_0, question_video_1, ...
-    """
-    permission_classes = [IsAdminUser]
-    parser_classes = [MultiPartParser, FormParser]
-
-    @swagger_auto_schema(
-        operation_description=(
-            "Bir so'rovda ko'p savol yaratish.\n\n"
-            "**JSON rejimi** (`application/json`):\n"
-            "```json\n"
-            "{\"lesson_video\":1,\"questions\":[{\"question_text\":\"Savol?\",\"difficulty\":\"medium\","
-            "\"order\":1,\"answers\":[{\"answer_text\":\"A\",\"is_correct\":false},{\"answer_text\":\"B\","
-            "\"is_correct\":true}]}]}\n"
-            "```\n\n"
-            "**Fayl rejimi** (`multipart/form-data`):\n"
-            "`questions` ni JSON string sifatida yuboring, "
-            "rasmlarni `photo_0`, `photo_1`, video kliplarni `question_video_0`, `question_video_1` orqali biriktiring."
-        ),
-        manual_parameters=_BULK_QUESTION_FORM_PARAMS,
-        consumes=['multipart/form-data', 'application/json'],
-        responses={
-            201: openapi.Response(
-                description="Savollar muvaffaqiyatli yaratildi",
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message': openapi.Schema(type=openapi.TYPE_STRING, example="3 ta savol muvaffaqiyatli yaratildi."),
-                        'video': openapi.Schema(type=openapi.TYPE_STRING, nullable=True),
-                        'questions': openapi.Schema(
-                            type=openapi.TYPE_ARRAY,
-                            items=openapi.Schema(type=openapi.TYPE_OBJECT),
-                        ),
-                    }
-                )
-            )
-        },
-    )
-    def post(self, request):
-        data = _extract_multipart_data(request, json_fields=('questions',))
-
-        serializer = BulkQuestionCreateSerializer(data=data)
-        serializer.is_valid(raise_exception=True)
-
-        lesson_video = serializer.validated_data.get('lesson_video')
-        questions_data = serializer.validated_data['questions']
-
-        created = []
-        with transaction.atomic():
-            for i, q_data in enumerate(questions_data):
-                answers_data = q_data.pop('answers')
-                question = TestQuestion.objects.create(
-                    lesson_video=lesson_video,
-                    question_text=q_data['question_text'],
-                    difficulty=q_data['difficulty'],
-                    order=q_data.get('order', i + 1),
-                    is_active=True,
-                )
-
-                photo = request.FILES.get(f'photo_{i}')
-                q_video = request.FILES.get(f'question_video_{i}')
-                if photo or q_video:
-                    if photo:
-                        question.photo = photo
-                    if q_video:
-                        question.video = q_video
-                    question.save()
-
-                for j, ans in enumerate(answers_data, start=1):
-                    TestAnswer.objects.create(
-                        question=question,
-                        answer_text=ans['answer_text'],
-                        is_correct=ans.get('is_correct', False),
-                        order=ans.get('order', j),
-                    )
-                created.append(question)
-
-        return Response(
-            {
-                "message": f"{len(created)} ta savol muvaffaqiyatli yaratildi.",
-                "video": lesson_video.title if lesson_video else None,
-                "questions": TestQuestionDetailSerializer(
-                    created, many=True, context={'request': request}
-                ).data,
-            },
-            status=status.HTTP_201_CREATED,
-        )
 
 
 class TestQuestionListView(generics.ListCreateAPIView):
@@ -951,7 +847,7 @@ class TestQuestionListView(generics.ListCreateAPIView):
     GET  - Barcha faol test savollari
     POST - Yangi savol + javoblar qo'shish (faqat admin) — multipart/form-data yoki JSON
     """
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -970,9 +866,27 @@ class TestQuestionListView(generics.ListCreateAPIView):
 
     @swagger_auto_schema(
         operation_description=(
-            "Yangi savol qo'shish. Javoblarni ham birga yuboring.\n\n"
-            "**JSON rejimi**: `answers` ni list sifatida yuboring.\n"
-            "**Fayl rejimi**: `answers` ni JSON string sifatida yuboring."
+            "Yangi savol + variantlar qo'shish (faqat admin).\n\n"
+            "---\n"
+            "### 1. Rasmsiz — `application/json`\n"
+            "```json\n"
+            "{\n"
+            '  "lesson_video": 1,\n'
+            '  "question_text": "Savol matni?",\n'
+            '  "difficulty": "medium",\n'
+            '  "answers": [\n'
+            '    {"answer_text": "Variant A", "is_correct": false, "order": 1},\n'
+            '    {"answer_text": "Variant B", "is_correct": true,  "order": 2},\n'
+            '    {"answer_text": "Variant D", "is_correct": false, "order": 3}\n'
+            '  ]\n'
+            "}\n"
+            "```\n\n"
+            "---\n"
+            "### 2. Rasm bilan — `multipart/form-data`\n"
+            "`photo` ni fayl sifatida, `answers` ni JSON **string** sifatida yuboring:\n"
+            "```\n"
+            'answers = [{"answer_text":"A","is_correct":false},{"answer_text":"B","is_correct":true}]\n'
+            "```"
         ),
         manual_parameters=_QUESTION_FORM_PARAMS,
         consumes=['multipart/form-data', 'application/json'],
@@ -980,7 +894,7 @@ class TestQuestionListView(generics.ListCreateAPIView):
     )
     def create(self, request, *args, **kwargs):
         data = _extract_multipart_data(request, json_fields=('answers',))
-        serializer = TestQuestionWithAnswersWriteSerializer(data=data)
+        serializer = TestQuestionWithAnswersWriteSerializer(data=data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         question = serializer.save()
         return Response(
@@ -996,7 +910,7 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     PATCH  - Qisman yangilash (faqat admin) — multipart/form-data yoki JSON
     DELETE - O'chirish (faqat admin)
     """
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
 
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH', 'DELETE'):
@@ -1299,6 +1213,66 @@ class BookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         serializer.is_valid(raise_exception=True)
         book = serializer.save()
         return Response(BookSerializer(book).data)
+
+
+# ==================== DASHBOARD ====================
+
+class DashboardView(APIView):
+    """GET /api/dashboard/ — Admin dashboard statistikasi."""
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        total_users      = User.objects.filter(is_staff=False).count()
+        new_users_month  = User.objects.filter(is_staff=False, date_joined__gte=month_start).count()
+        active_subs      = UserSubscription.objects.filter(expires_at__gt=now).count()
+
+        payments_month   = PaymentRequest.objects.filter(created_at__gte=month_start)
+        payments_pending = payments_month.filter(status='pending').count()
+        payments_approved= payments_month.filter(status='approved').count()
+        payments_total   = payments_month.count()
+        payments_amount  = payments_month.filter(status='approved').aggregate(
+            total=models.Sum('amount')
+        )['total'] or 0
+
+        total_videos     = Video.objects.filter(is_active=True).count()
+        paid_videos      = Video.objects.filter(is_active=True, is_paid=True).count()
+        free_videos      = total_videos - paid_videos
+
+        total_questions  = TestQuestion.objects.filter(is_active=True).count()
+        total_road_signs = RoadSign.objects.filter(is_active=True).count()
+        total_books      = Book.objects.filter(is_active=True).count()
+
+        tests_month      = TestResult.objects.filter(completed_at__gte=month_start)
+        tests_passed     = tests_month.filter(passed=True).count()
+
+        return Response({
+            "users": {
+                "total":          total_users,
+                "new_this_month": new_users_month,
+                "active_subs":    active_subs,
+            },
+            "payments": {
+                "this_month_total":    payments_total,
+                "this_month_approved": payments_approved,
+                "this_month_pending":  payments_pending,
+                "this_month_amount":   payments_amount,
+            },
+            "content": {
+                "videos":      total_videos,
+                "paid_videos": paid_videos,
+                "free_videos": free_videos,
+                "questions":   total_questions,
+                "road_signs":  total_road_signs,
+                "books":       total_books,
+            },
+            "tests": {
+                "this_month_total":  tests_month.count(),
+                "this_month_passed": tests_passed,
+            },
+        })
 
 
 # ==================== TO'LOV ====================

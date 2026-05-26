@@ -279,18 +279,20 @@ class TestAnswerWithCorrectSerializer(serializers.ModelSerializer):
 
 class TestQuestionSerializer(serializers.ModelSerializer):
     answers = TestAnswerSerializer(many=True, read_only=True)
+    lesson_video_title = serializers.CharField(source='lesson_video.title', read_only=True, allow_null=True)
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'question_text', 'photo', 'video', 'difficulty', 'answers']
+        fields = ['id', 'lesson_video', 'lesson_video_title', 'question_text', 'photo', 'video', 'difficulty', 'answers']
 
 
 class TestQuestionDetailSerializer(serializers.ModelSerializer):
     answers = TestAnswerWithCorrectSerializer(many=True, read_only=True)
+    lesson_video_title = serializers.CharField(source='lesson_video.title', read_only=True, allow_null=True)
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
+        fields = ['id', 'lesson_video', 'lesson_video_title', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
 
 
 class TestQuestionWriteSerializer(serializers.ModelSerializer):
@@ -407,49 +409,6 @@ class TestResultListSerializer(serializers.ModelSerializer):
         ]
 
 
-# ==================== BULK TEST YARATISH ====================
-
-class QuestionInputSerializer(serializers.Serializer):
-    question_text = serializers.CharField()
-    difficulty = serializers.ChoiceField(
-        choices=['easy', 'medium', 'hard'], default='medium'
-    )
-    order = serializers.IntegerField(default=0, min_value=0)
-    answers = AnswerInputSerializer(many=True)
-
-    class Meta:
-        ref_name = 'QuestionInput'
-
-    def validate_answers(self, value):
-        if len(value) < 2:
-            raise serializers.ValidationError(
-                "Har bir savolda kamida 2 ta javob bo'lishi kerak."
-            )
-        correct_count = sum(1 for a in value if a.get('is_correct'))
-        if correct_count == 0:
-            raise serializers.ValidationError(
-                "Kamida bitta to'g'ri javob belgilanishi kerak."
-            )
-        if correct_count > 1:
-            raise serializers.ValidationError(
-                "Faqat bitta to'g'ri javob bo'lishi mumkin."
-            )
-        return value
-
-
-class BulkQuestionCreateSerializer(serializers.Serializer):
-    lesson_video = serializers.PrimaryKeyRelatedField(
-        queryset=Video.objects.filter(is_active=True),
-        required=False,
-        allow_null=True,
-        help_text="Video ID (ixtiyoriy). Ko'rsatilmasa, umumiy test savoli bo'ladi.",
-    )
-    questions = QuestionInputSerializer(many=True)
-
-    def validate_questions(self, value):
-        if not value:
-            raise serializers.ValidationError("Kamida bitta savol bo'lishi kerak.")
-        return value
 
 
 class SubmitTestSerializer(serializers.Serializer):

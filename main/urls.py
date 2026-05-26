@@ -7,7 +7,6 @@ from .views import (
     VideoTestQuestionListView, VideoTestSubmitView, VideoTestResultListView,
     RoadSignListCreateView, RoadSignRetrieveUpdateDestroyView,
     RoadSignCategoryListView,
-    BulkTestQuestionCreateView,
     TestQuestionListView, TestQuestionDetailView,
     TestAnswerListCreateView, TestAnswerDetailView,
     SubmitTestView, TestResultListView, TestResultDetailView,
@@ -15,9 +14,13 @@ from .views import (
     BookListCreateView, BookRetrieveUpdateDestroyView,
     PaymentRequestCreateView, SubscriptionStatusView,
     PaymentAdminListView, PaymentReviewView,
+    DashboardView,
 )
 
 urlpatterns = [
+    # Dashboard
+    path('api/dashboard/', DashboardView.as_view(), name='dashboard'),
+
     # Auth
     path('api/register/', RegisterView.as_view(), name='register'),
     path('api/login/', LoginView.as_view(), name='login'),
@@ -45,7 +48,6 @@ urlpatterns = [
     path('api/road-signs/<int:pk>/', RoadSignRetrieveUpdateDestroyView.as_view(), name='road-sign-detail'),
 
     # Test (umumiy)
-    path('api/tests/questions/bulk/', BulkTestQuestionCreateView.as_view(), name='test-question-bulk-create'),
     path('api/tests/questions/', TestQuestionListView.as_view(), name='test-question-list'),
     path('api/tests/questions/<int:pk>/', TestQuestionDetailView.as_view(), name='test-question-detail'),
     path('api/tests/answers/', TestAnswerListCreateView.as_view(), name='test-answer-list'),
