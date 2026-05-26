@@ -845,9 +845,9 @@ class VideoTestResultListView(generics.ListAPIView):
 class TestQuestionListView(generics.ListCreateAPIView):
     """
     GET  - Barcha faol test savollari
-    POST - Yangi savol + javoblar qo'shish (faqat admin) — multipart/form-data yoki JSON
+    POST - Yangi savol + javoblar qo'shish (faqat admin) — multipart/form-data
     """
-    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
         if self.request.method == 'POST':
@@ -856,7 +856,7 @@ class TestQuestionListView(generics.ListCreateAPIView):
 
     def get_serializer_class(self):
         if getattr(self, 'swagger_fake_view', False):
-            return TestQuestionSerializer
+            return TestQuestionWriteSerializer
         if self.request.method == 'POST':
             return TestQuestionWithAnswersWriteSerializer
         return TestQuestionSerializer
@@ -867,29 +867,12 @@ class TestQuestionListView(generics.ListCreateAPIView):
     @swagger_auto_schema(
         operation_description=(
             "Yangi savol + variantlar qo'shish (faqat admin).\n\n"
-            "---\n"
-            "### 1. Rasmsiz — `application/json`\n"
-            "```json\n"
-            "{\n"
-            '  "lesson_video": 1,\n'
-            '  "question_text": "Savol matni?",\n'
-            '  "difficulty": "medium",\n'
-            '  "answers": [\n'
-            '    {"answer_text": "Variant A", "is_correct": false, "order": 1},\n'
-            '    {"answer_text": "Variant B", "is_correct": true,  "order": 2},\n'
-            '    {"answer_text": "Variant D", "is_correct": false, "order": 3}\n'
-            '  ]\n'
-            "}\n"
-            "```\n\n"
-            "---\n"
-            "### 2. Rasm bilan — `multipart/form-data`\n"
-            "`photo` ni fayl sifatida, `answers` ni JSON **string** sifatida yuboring:\n"
-            "```\n"
-            'answers = [{"answer_text":"A","is_correct":false},{"answer_text":"B","is_correct":true}]\n'
-            "```"
+            "`answers` — JSON string sifatida yuboring:\n"
+            '`[{"answer_text":"A","is_correct":false,"order":1},{"answer_text":"B","is_correct":true,"order":2}]`\n\n'
+            "Rasmsiz yuborish uchun `photo` maydonini bo'sh qoldiring."
         ),
         manual_parameters=_QUESTION_FORM_PARAMS,
-        consumes=['multipart/form-data', 'application/json'],
+        consumes=['multipart/form-data'],
         responses={201: TestQuestionDetailSerializer()},
     )
     def create(self, request, *args, **kwargs):
@@ -906,11 +889,11 @@ class TestQuestionListView(generics.ListCreateAPIView):
 class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
     GET    - Savol batafsil (to'g'ri javob bilan)
-    PUT    - Yangilash (faqat admin) — multipart/form-data yoki JSON
-    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data yoki JSON
+    PUT    - Yangilash (faqat admin) — multipart/form-data
+    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data
     DELETE - O'chirish (faqat admin)
     """
-    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
         if self.request.method in ('PUT', 'PATCH', 'DELETE'):
@@ -919,7 +902,7 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_serializer_class(self):
         if getattr(self, 'swagger_fake_view', False):
-            return TestQuestionDetailSerializer
+            return TestQuestionWriteSerializer
         if self.request.method in ('PUT', 'PATCH'):
             return TestQuestionWithAnswersWriteSerializer
         return TestQuestionDetailSerializer
@@ -929,7 +912,7 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     @swagger_auto_schema(
         manual_parameters=_QUESTION_FORM_PARAMS,
-        consumes=['multipart/form-data', 'application/json'],
+        consumes=['multipart/form-data'],
         responses={200: TestQuestionDetailSerializer()},
     )
     def update(self, request, *args, **kwargs):
@@ -944,7 +927,7 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     @swagger_auto_schema(
         manual_parameters=_QUESTION_FORM_PARAMS,
-        consumes=['multipart/form-data', 'application/json'],
+        consumes=['multipart/form-data'],
         responses={200: TestQuestionDetailSerializer()},
     )
     def partial_update(self, request, *args, **kwargs):

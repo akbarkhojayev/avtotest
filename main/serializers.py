@@ -296,9 +296,14 @@ class TestQuestionDetailSerializer(serializers.ModelSerializer):
 
 
 class TestQuestionWriteSerializer(serializers.ModelSerializer):
+    answers = serializers.CharField(
+        write_only=True, required=False,
+        help_text='JSON string: [{"answer_text":"A","is_correct":false,"order":1},{"answer_text":"B","is_correct":true,"order":2}]'
+    )
+
     class Meta:
         model = TestQuestion
-        fields = ['id', 'lesson_video', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active']
+        fields = ['id', 'lesson_video', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'order': {'default': 0, 'required': False},
