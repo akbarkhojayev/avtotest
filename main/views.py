@@ -44,7 +44,6 @@ from .serializers import (
 )
 
 
-# ==================== SWAGGER PARAMETRLAR ====================
 
 _VIDEO_FORM_PARAMS = [
     openapi.Parameter('title',          openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True,  description='Sarlavha (UZ)'),
@@ -85,15 +84,8 @@ _QUESTION_FORM_PARAMS = [
 ]
 
 
-
-# ==================== YORDAMCHI FUNKSIYALAR ====================
-
 def _extract_multipart_data(request, json_fields=()):
-    """
-    QueryDict (multipart) dan JSON string maydonlarni parse qilib dict qaytaradi.
-    Fayllarni ham (request.FILES) dict ga qo'shadi.
-    JSON so'rovlarda o'zgartirmasdan qaytaradi.
-    """
+
     if not isinstance(request.data, QueryDict):
         return request.data
 
@@ -107,7 +99,6 @@ def _extract_multipart_data(request, json_fields=()):
                 pass
         data[key] = val
 
-    # Fayllarni qo'shish (photo, video, image, ...)
     for key, file in request.FILES.items():
         data[key] = file
 
@@ -121,10 +112,7 @@ def get_client_ip(request):
     return request.META.get('REMOTE_ADDR')
 
 
-# ==================== AUTH ====================
-
 class LoginView(APIView):
-    """Foydalanuvchi login. device_id - qurilma identifikatori."""
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(request_body=LoginSerializer)
@@ -177,7 +165,6 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
-    """Foydalanuvchi logout."""
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=openapi.Schema(type=openapi.TYPE_OBJECT, description="Bo'sh body"))
@@ -193,7 +180,6 @@ class LogoutView(APIView):
 
 
 class RegisterView(APIView):
-    """Yangi foydalanuvchi ro'yxatdan o'tkazish."""
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(request_body=RegisterSerializer)
@@ -208,10 +194,6 @@ class RegisterView(APIView):
 
 
 class AdminUserListCreateView(generics.ListCreateAPIView):
-    """
-    GET  - Barcha foydalanuvchilar (faqat admin)
-    POST - Yangi foydalanuvchi qo'shish (faqat admin)
-    """
     permission_classes = [IsAdminUser]
 
     def get_serializer_class(self):
@@ -242,12 +224,6 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
 
 
 class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET    - Foydalanuvchi ma'lumotlari (faqat admin)
-    PATCH  - Qisman yangilash (faqat admin)
-    PUT    - To'liq yangilash (faqat admin)
-    DELETE - O'chirish (faqat admin)
-    """
     permission_classes = [IsAdminUser]
     queryset = User.objects.all()
 
@@ -286,11 +262,6 @@ class AdminUserDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class ProfileView(APIView):
-    """
-    GET    - Profil va statistika
-    PATCH  - Profilni yangilash (ism, email, parol)
-    DELETE - Hisobni o'chirish
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -340,10 +311,8 @@ class ProfileView(APIView):
         )
 
 
-# ==================== VIDEO ====================
 
 def _video_queryset_with_prefetch(user):
-    """Video queryset — N+1 muammosini oldini olish uchun prefetch_related."""
     return Video.objects.filter(is_active=True).prefetch_related(
         Prefetch(
             'progress',
@@ -364,10 +333,6 @@ def _video_queryset_with_prefetch(user):
 
 
 class VideoListCreateView(generics.ListCreateAPIView):
-    """
-    GET  - Barcha faol videolar
-    POST - Yangi video qo'shish (faqat admin) — multipart/form-data
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -413,12 +378,6 @@ class VideoListCreateView(generics.ListCreateAPIView):
 
 
 class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET    - Video ma'lumotlari
-    PUT    - Yangilash (faqat admin) — multipart/form-data
-    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data
-    DELETE - O'chirish (faqat admin)
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -473,10 +432,6 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class VideoStreamView(APIView):
-    """
-    Range header yo'q  → JSON (stream_url bilan)
-    Range header bor   → Binary streaming (<video> player uchun)
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -588,7 +543,6 @@ class VideoStreamView(APIView):
 
 
 class UpdateProgressView(APIView):
-    """Video ko'rish progressini yangilash."""
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=UpdateProgressSerializer)
@@ -610,10 +564,7 @@ class UpdateProgressView(APIView):
         })
 
 
-# ==================== YO'L BELGILARI ====================
-
 class RoadSignCategoryListView(APIView):
-    """Yo'l belgilari kategoriyalari ro'yxati."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -625,10 +576,6 @@ class RoadSignCategoryListView(APIView):
 
 
 class RoadSignListCreateView(generics.ListCreateAPIView):
-    """
-    GET  - Barcha yo'l belgilari. ?category=<key> filter
-    POST - Yangi yo'l belgisi qo'shish (faqat admin) — multipart/form-data
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -661,12 +608,6 @@ class RoadSignListCreateView(generics.ListCreateAPIView):
 
 
 class RoadSignRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET    - Yo'l belgisi ma'lumotlari
-    PUT    - Yangilash (faqat admin) — multipart/form-data
-    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data
-    DELETE - O'chirish (faqat admin)
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -701,12 +642,7 @@ class RoadSignRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         return super().partial_update(request, *args, **kwargs)
 
 
-# ==================== TEST ====================
-
 class VideoTestQuestionListView(generics.ListAPIView):
-    """
-    GET /api/videos/<pk>/tests/ — Video darsiga tegishli test savollari.
-    """
     permission_classes = [IsAuthenticated]
     serializer_class = TestQuestionSerializer
 
@@ -730,10 +666,6 @@ class VideoTestQuestionListView(generics.ListAPIView):
 
 
 class VideoTestSubmitView(APIView):
-    """
-    POST /api/videos/<pk>/tests/submit/ — Video testi javoblarini yuborish.
-    Body: {"answers": [{"question_id": 1, "answer_id": 3}, ...]}
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=SubmitTestSerializer)
@@ -825,9 +757,6 @@ class VideoTestSubmitView(APIView):
 
 
 class VideoTestResultListView(generics.ListAPIView):
-    """
-    GET /api/videos/<pk>/tests/results/ — Foydalanuvchining bu video uchun test natijalari.
-    """
     permission_classes = [IsAuthenticated]
     serializer_class = TestResultListSerializer
 
@@ -843,10 +772,6 @@ class VideoTestResultListView(generics.ListAPIView):
 
 
 class TestQuestionListView(generics.ListCreateAPIView):
-    """
-    GET  - Barcha faol test savollari
-    POST - Yangi savol + javoblar qo'shish (faqat admin) — multipart/form-data
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -887,12 +812,6 @@ class TestQuestionListView(generics.ListCreateAPIView):
 
 
 class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET    - Savol batafsil (to'g'ri javob bilan)
-    PUT    - Yangilash (faqat admin) — multipart/form-data
-    PATCH  - Qisman yangilash (faqat admin) — multipart/form-data
-    DELETE - O'chirish (faqat admin)
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -942,10 +861,6 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 
 class TestAnswerListCreateView(generics.ListCreateAPIView):
-    """
-    GET  - Savolga tegishli variantlar. ?question=<id> filter
-    POST - Yangi variant qo'shish (faqat admin)
-    """
     permission_classes = [IsAdminUser]
     serializer_class = TestAnswerWriteSerializer
 
@@ -957,18 +872,12 @@ class TestAnswerListCreateView(generics.ListCreateAPIView):
 
 
 class TestAnswerDetailView(generics.RetrieveUpdateDestroyAPIView):
-    """Variant yangilash/o'chirish (faqat admin)"""
     permission_classes = [IsAdminUser]
     serializer_class = TestAnswerWriteSerializer
     queryset = TestAnswer.objects.all()
 
 
 class SubmitTestView(APIView):
-    """
-    Test javoblarini yuborish va natijani hisoblash.
-    POST /api/tests/submit/
-    Body: {"answers": [{"question_id": 1, "answer_id": 3}, ...]}
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=SubmitTestSerializer)
@@ -1053,7 +962,6 @@ class SubmitTestView(APIView):
 
 
 class TestResultListView(generics.ListAPIView):
-    """Foydalanuvchining test natijalari ro'yxati"""
     permission_classes = [IsAuthenticated]
     serializer_class = TestResultListSerializer
 
@@ -1062,7 +970,6 @@ class TestResultListView(generics.ListAPIView):
 
 
 class TestResultDetailView(generics.RetrieveAPIView):
-    """Test natijasining batafsil ma'lumotlari"""
     permission_classes = [IsAuthenticated]
     serializer_class = TestResultSerializer
 
@@ -1073,7 +980,6 @@ class TestResultDetailView(generics.RetrieveAPIView):
 
 
 class TestStatisticsView(APIView):
-    """Foydalanuvchining umumiy test statistikasi"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -1097,7 +1003,6 @@ class TestStatisticsView(APIView):
         })
 
 
-# ==================== KITOBLAR ====================
 
 _BOOK_FORM_PARAMS = [
     openapi.Parameter('title',          openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True,  description='Sarlavha (UZ)'),
@@ -1115,10 +1020,6 @@ _BOOK_FORM_PARAMS = [
 
 
 class BookListCreateView(generics.ListCreateAPIView):
-    """
-    GET  - Faol kitoblar ro'yxati
-    POST - Yangi kitob qo'shish (faqat admin) — multipart/form-data
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -1150,12 +1051,6 @@ class BookListCreateView(generics.ListCreateAPIView):
 
 
 class BookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
-    """
-    GET    - Kitob tafsilotlari
-    PUT    - Yangilash (faqat admin)
-    PATCH  - Qisman yangilash (faqat admin)
-    DELETE - O'chirish (faqat admin)
-    """
     parser_classes = [MultiPartParser, FormParser]
 
     def get_permissions(self):
@@ -1201,7 +1096,6 @@ class BookRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 # ==================== DASHBOARD ====================
 
 class DashboardView(APIView):
-    """GET /api/dashboard/ — Admin dashboard statistikasi."""
     permission_classes = [IsAdminUser]
 
     def get(self, request):
@@ -1258,8 +1152,6 @@ class DashboardView(APIView):
         })
 
 
-# ==================== TO'LOV ====================
-
 _PAYMENT_FORM_PARAMS = [
     openapi.Parameter('amount',  openapi.IN_FORM, type=openapi.TYPE_INTEGER, required=True, description="To'langan summa (so'mda)"),
     openapi.Parameter('receipt', openapi.IN_FORM, type=openapi.TYPE_FILE,    required=True, description="To'lov cheki rasmi"),
@@ -1268,10 +1160,6 @@ _PAYMENT_FORM_PARAMS = [
 
 
 class PaymentRequestCreateView(APIView):
-    """
-    POST /api/payments/ — Foydalanuvchi to'lov cheki yuboradi.
-    GET  /api/payments/ — Foydalanuvchi o'z so'rovlarini ko'radi.
-    """
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
@@ -1300,9 +1188,6 @@ class PaymentRequestCreateView(APIView):
 
 
 class SubscriptionStatusView(APIView):
-    """
-    GET /api/payments/subscription/ — Foydalanuvchi obuna holatini ko'radi.
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -1314,10 +1199,6 @@ class SubscriptionStatusView(APIView):
 
 
 class PaymentAdminListView(generics.ListAPIView):
-    """
-    GET /api/payments/admin/ — Admin barcha to'lov so'rovlarini ko'radi.
-    ?status=pending|approved|rejected filtri mavjud.
-    """
     permission_classes = [IsAdminUser]
     serializer_class = PaymentRequestAdminSerializer
 
@@ -1332,10 +1213,6 @@ class PaymentAdminListView(generics.ListAPIView):
 
 
 class PaymentReviewView(APIView):
-    """
-    POST /api/payments/<id>/review/ — Admin to'lovni tasdiqlaydi yoki rad etadi.
-    action: approve | reject
-    """
     permission_classes = [IsAdminUser]
 
     @swagger_auto_schema(

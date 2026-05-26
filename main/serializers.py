@@ -7,8 +7,6 @@ from .models import (
 )
 
 
-# ==================== AUTH ====================
-
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
@@ -226,7 +224,6 @@ class VideoWriteSerializer(serializers.ModelSerializer):
             'is_paid': {'default': False, 'required': False},
             'order': {'default': 0, 'required': False},
         }
-# ==================== YO'L BELGILARI ====================
 
 class RoadSignSerializer(serializers.ModelSerializer):
     category_display = serializers.CharField(source='get_category_display', read_only=True)
@@ -253,14 +250,10 @@ class RoadSignWriteSerializer(serializers.ModelSerializer):
         }
 
 
-# ==================== PROGRESS ====================
-
 class UpdateProgressSerializer(serializers.Serializer):
     watched_seconds = serializers.IntegerField(min_value=0)
     is_completed = serializers.BooleanField(default=False)
 
-
-# ==================== TEST ====================
 
 class TestAnswerSerializer(serializers.ModelSerializer):
     class Meta:
@@ -270,7 +263,6 @@ class TestAnswerSerializer(serializers.ModelSerializer):
 
 
 class TestAnswerWithCorrectSerializer(serializers.ModelSerializer):
-    """Admin uchun - to'g'ri javob ko'rsatadi"""
     class Meta:
         model = TestAnswer
         fields = ['id', 'answer_text', 'is_correct', 'order']
@@ -318,7 +310,6 @@ class TestAnswerWriteSerializer(serializers.ModelSerializer):
 
 
 class AnswerInputSerializer(serializers.Serializer):
-    """Savol javoblari uchun umumiy input serializer."""
     answer_text = serializers.CharField(max_length=500)
     is_correct = serializers.BooleanField(default=False)
     order = serializers.IntegerField(default=0, min_value=0)
@@ -328,11 +319,7 @@ class AnswerInputSerializer(serializers.Serializer):
 
 
 class TestQuestionWithAnswersWriteSerializer(serializers.ModelSerializer):
-    """
-    Bitta savol + javoblar birgalikda yaratish/yangilash.
-    Multipart (form-data) da 'answers' ni JSON string sifatida yuboring:
-      answers='[{"answer_text":"A","is_correct":false},{"answer_text":"B","is_correct":true}]'
-    """
+
     answers = AnswerInputSerializer(many=True, write_only=True, required=False)
 
     class Meta:
@@ -415,7 +402,6 @@ class TestResultListSerializer(serializers.ModelSerializer):
 
 
 
-
 class SubmitTestSerializer(serializers.Serializer):
     answers = serializers.ListField(
         child=serializers.DictField(
@@ -429,8 +415,6 @@ class SubmitTestSerializer(serializers.Serializer):
             raise serializers.ValidationError("Javoblar bo'sh bo'lishi mumkin emas.")
         return value
 
-
-# ==================== KITOBLAR ====================
 
 class BookSerializer(serializers.ModelSerializer):
     class Meta:
@@ -460,8 +444,6 @@ class BookWriteSerializer(serializers.ModelSerializer):
         }
 
 
-# ==================== TO'LOV ====================
-
 class SubscriptionSerializer(serializers.ModelSerializer):
     is_active = serializers.BooleanField(read_only=True)
 
@@ -471,7 +453,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
 
 class PaymentRequestCreateSerializer(serializers.ModelSerializer):
-    """Foydalanuvchi chek yuboradi"""
     class Meta:
         model = PaymentRequest
         fields = ['id', 'amount', 'receipt', 'comment']
@@ -481,7 +462,6 @@ class PaymentRequestCreateSerializer(serializers.ModelSerializer):
 
 
 class PaymentRequestSerializer(serializers.ModelSerializer):
-    """Foydalanuvchi o'z so'rovlarini ko'radi"""
     status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
@@ -494,7 +474,6 @@ class PaymentRequestSerializer(serializers.ModelSerializer):
 
 
 class PaymentRequestAdminSerializer(serializers.ModelSerializer):
-    """Admin barcha so'rovlarni ko'radi"""
     status_display  = serializers.CharField(source='get_status_display', read_only=True)
     username        = serializers.CharField(source='user.username', read_only=True)
     full_name       = serializers.SerializerMethodField()
@@ -513,7 +492,6 @@ class PaymentRequestAdminSerializer(serializers.ModelSerializer):
 
 
 class PaymentReviewSerializer(serializers.Serializer):
-    """Admin tasdiqlash yoki rad etish uchun"""
     action = serializers.ChoiceField(choices=['approve', 'reject'])
     admin_note = serializers.CharField(required=False, allow_blank=True)
     subscription_days = serializers.IntegerField(min_value=1, default=30, required=False)
