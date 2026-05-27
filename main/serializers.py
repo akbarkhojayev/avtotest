@@ -165,6 +165,7 @@ class VideoProgressSerializer(serializers.ModelSerializer):
 class VideoSerializer(serializers.ModelSerializer):
     user_progress = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
+    stream_url = serializers.SerializerMethodField()
     has_test = serializers.SerializerMethodField()
     test_passed = serializers.SerializerMethodField()
 
@@ -172,16 +173,35 @@ class VideoSerializer(serializers.ModelSerializer):
         model = Video
         fields = [
             'id', 'title', 'description', 'thumbnail',
-            'duration', 'order', 'youtube_url', 'is_paid',
-            'video_url', 'user_progress',
+            'duration', 'order', 'is_paid',
+            'video_url', 'stream_url', 'user_progress',
             'has_test', 'test_passed',
         ]
 
+    def _has_access(self, obj, request):
+        if not obj.is_paid:
+            return True
+        if not (request and request.user.is_authenticated):
+            return False
+        if request.user.is_staff:
+            return True
+        try:
+            return request.user.subscription.is_active
+        except Exception:
+            return False
+
     def get_video_url(self, obj):
-        if obj.video_file:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(f'/api/videos/{obj.id}/stream/')
+        request = self.context.get('request')
+        if not self._has_access(obj, request):
+            return None
+        return obj.video_url
+
+    def get_stream_url(self, obj):
+        request = self.context.get('request')
+        if not obj.video_file or not self._has_access(obj, request):
+            return None
+        if request:
+            return request.build_absolute_uri(f'/api/videos/{obj.id}/stream/')
         return None
 
     def get_user_progress(self, obj):
@@ -216,7 +236,7 @@ class VideoWriteSerializer(serializers.ModelSerializer):
         model = Video
         fields = [
             'id', 'title', 'title_ru', 'description', 'description_ru',
-            'video_file', 'youtube_url', 'thumbnail',
+            'video_file', 'video_url', 'thumbnail',
             'duration', 'order', 'is_paid', 'is_active'
         ]
         extra_kwargs = {

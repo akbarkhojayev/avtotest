@@ -50,7 +50,7 @@ class VideoAdmin(admin.ModelAdmin):
             'fields': ('title', 'title_ru', 'description', 'description_ru')
         }),
         ("Media", {
-            'fields': ('video_file', 'youtube_url', 'thumbnail', 'thumbnail_preview', 'duration')
+            'fields': ('video_file', 'video_url', 'thumbnail', 'thumbnail_preview', 'duration')
         }),
         ("Sozlamalar", {
             'fields': ('order', 'is_paid', 'is_active', 'created_at')

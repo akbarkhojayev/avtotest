@@ -11,7 +11,7 @@ from django.http import QueryDict, StreamingHttpResponse, Http404
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status, generics
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,6 +20,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 
 from django.utils import timezone
+from datetime import timedelta
 
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
@@ -50,8 +51,8 @@ _VIDEO_FORM_PARAMS = [
     openapi.Parameter('title_ru',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Sarlavha (RU)'),
     openapi.Parameter('description',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (UZ)'),
     openapi.Parameter('description_ru', openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Tavsif (RU)'),
-    openapi.Parameter('video_file',     openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Video fayli (mp4) — video_file yoki youtube_url dan biri shart'),
-    openapi.Parameter('youtube_url',    openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='YouTube embed URL — video_file yoki youtube_url dan biri shart'),
+    openapi.Parameter('video_file',     openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Video fayli (mp4) — video_file yoki video_url dan biri shart'),
+    openapi.Parameter('video_url',      openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Video URL (YouTube embed va h.k.) — video_file yoki video_url dan biri shart'),
     openapi.Parameter('thumbnail',      openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Muqova rasmi'),
     openapi.Parameter('duration',       openapi.IN_FORM, type=openapi.TYPE_STRING,                  description='Davomiyligi, masalan: 10:30'),
     openapi.Parameter('order',          openapi.IN_FORM, type=openapi.TYPE_INTEGER, default=0),
@@ -362,7 +363,7 @@ class VideoListCreateView(generics.ListCreateAPIView):
         return super().list(request, *args, **kwargs)
 
     @swagger_auto_schema(
-        operation_description="Yangi video qo'shish (faqat admin). video_file yoki youtube_url dan biri bo'lishi kerak.",
+        operation_description="Yangi video qo'shish (faqat admin). video_file yoki video_url dan biri bo'lishi kerak.",
         manual_parameters=_VIDEO_FORM_PARAMS,
         consumes=['multipart/form-data'],
         responses={201: VideoSerializer()},
@@ -1178,6 +1179,11 @@ class PaymentRequestCreateView(APIView):
         responses={201: PaymentRequestSerializer()},
     )
     def post(self, request):
+        if PaymentRequest.objects.filter(user=request.user, status='pending').exists():
+            return Response(
+                {"detail": "Sizning kutilayotgan to'lov so'rovingiz mavjud. Avval u ko'rib chiqilishi kerak."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         serializer = PaymentRequestCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payment = serializer.save(user=request.user)
@@ -1229,51 +1235,53 @@ class PaymentReviewView(APIView):
         )},
     )
     def post(self, request, pk):
-        payment = get_object_or_404(PaymentRequest, pk=pk)
-
-        if payment.status != 'pending':
-            return Response(
-                {"detail": "Bu so'rov allaqachon ko'rib chiqilgan."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         serializer = PaymentReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        action = serializer.validated_data['action']
-        admin_note = serializer.validated_data.get('admin_note', '')
+        action            = serializer.validated_data['action']
+        admin_note        = serializer.validated_data.get('admin_note', '')
         subscription_days = serializer.validated_data.get('subscription_days', 30)
 
-        payment.admin_note = admin_note
-        payment.reviewed_by = request.user
-        payment.reviewed_at = timezone.now()
+        with transaction.atomic():
+            # select_for_update — ikki admin bir vaqtda tasdiqlamasin
+            payment = PaymentRequest.objects.select_for_update().filter(pk=pk).first()
+            if not payment:
+                return Response({"detail": "To'lov topilmadi."}, status=status.HTTP_404_NOT_FOUND)
 
-        if action == 'approve':
-            payment.status = 'approved'
-            payment.subscription_days = subscription_days
-            payment.save()
-
-            try:
-                sub = payment.user.subscription
-                if sub.expires_at > timezone.now():
-                    sub.expires_at += timezone.timedelta(days=subscription_days)
-                else:
-                    sub.expires_at = timezone.now() + timezone.timedelta(days=subscription_days)
-                sub.save()
-            except UserSubscription.DoesNotExist:
-                UserSubscription.objects.create(
-                    user=payment.user,
-                    expires_at=timezone.now() + timezone.timedelta(days=subscription_days),
+            if payment.status != 'pending':
+                return Response(
+                    {"detail": "Bu so'rov allaqachon ko'rib chiqilgan."},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            return Response({
-                "detail": f"Tasdiqlandi. Foydalanuvchiga {subscription_days} kunlik obuna berildi.",
-                "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
-            })
-        else:
-            payment.status = 'rejected'
-            payment.save()
-            return Response({
-                "detail": "Rad etildi.",
-                "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
-            })
+            payment.admin_note   = admin_note
+            payment.reviewed_by  = request.user
+            payment.reviewed_at  = timezone.now()
+
+            if action == 'approve':
+                payment.status           = 'approved'
+                payment.subscription_days = subscription_days
+                payment.save()
+
+                now = timezone.now()
+                try:
+                    sub = UserSubscription.objects.select_for_update().get(user=payment.user)
+                    sub.expires_at = (sub.expires_at if sub.expires_at > now else now) + timedelta(days=subscription_days)
+                    sub.save()
+                except UserSubscription.DoesNotExist:
+                    UserSubscription.objects.create(
+                        user=payment.user,
+                        expires_at=now + timedelta(days=subscription_days),
+                    )
+
+                return Response({
+                    "detail": f"Tasdiqlandi. Foydalanuvchiga {subscription_days} kunlik obuna berildi.",
+                    "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+                })
+            else:
+                payment.status = 'rejected'
+                payment.save()
+                return Response({
+                    "detail": "Rad etildi.",
+                    "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+                })
