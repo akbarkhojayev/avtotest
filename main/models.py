@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from .storage import BunnyStorage
 
 class UserSession(models.Model):
     ROLE_CHOICES = [
@@ -28,7 +29,7 @@ class Video(models.Model):
     title_ru = models.CharField(max_length=300, blank=True, null=True)
     description = models.TextField(blank=True,null=True)
     description_ru = models.TextField(blank=True,null=True)
-    video_file = models.FileField(upload_to='videos/', blank=True, null=True)
+    video_file = models.FileField(upload_to='videos/', blank=True, null=True, storage=BunnyStorage)
     video_url = models.URLField(blank=True, null=True, help_text="YouTube embed URL (ixtiyoriy)")
     thumbnail = models.ImageField(upload_to='thumbnails/', blank=True, null=True)
     duration = models.CharField(max_length=20, blank=True, help_text="Masalan: 10:30")
