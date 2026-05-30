@@ -313,6 +313,21 @@ class ProfileView(APIView):
 
 
 
+def _check_subscription(user, video):
+    """Pullik video uchun obuna tekshiruvi. Xato bo'lsa Response qaytaradi, aks holda None."""
+    if not video.is_paid or user.is_staff:
+        return None
+    try:
+        if user.subscription.is_active:
+            return None
+    except UserSubscription.DoesNotExist:
+        pass
+    return Response(
+        {"detail": "Bu dars pullik. Obuna sotib oling."},
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def _video_queryset_with_prefetch(user):
     return Video.objects.filter(is_active=True).prefetch_related(
         Prefetch(
@@ -456,19 +471,9 @@ class VideoStreamView(APIView):
     def get(self, request, pk):
         video = get_object_or_404(Video, pk=pk, is_active=True)
 
-        if video.is_paid and not request.user.is_staff:
-            try:
-                sub = request.user.subscription
-                if not sub.is_active:
-                    return Response(
-                        {"detail": "Bu dars pullik. Obuna sotib oling."},
-                        status=status.HTTP_403_FORBIDDEN,
-                    )
-            except UserSubscription.DoesNotExist:
-                return Response(
-                    {"detail": "Bu dars pullik. Obuna sotib oling."},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
+        err = _check_subscription(request.user, video)
+        if err:
+            return err
 
         if not video.video_file:
             return Response({"detail": "Video fayli mavjud emas."}, status=status.HTTP_404_NOT_FOUND)
@@ -656,6 +661,10 @@ class VideoTestQuestionListView(generics.ListAPIView):
         ).prefetch_related('answers')
 
     def list(self, request, *args, **kwargs):
+        video = get_object_or_404(Video, pk=self.kwargs['pk'], is_active=True)
+        err = _check_subscription(request.user, video)
+        if err:
+            return err
         queryset = self.filter_queryset(self.get_queryset())
         if not queryset.exists():
             return Response(
@@ -672,6 +681,9 @@ class VideoTestSubmitView(APIView):
     @swagger_auto_schema(request_body=SubmitTestSerializer)
     def post(self, request, pk):
         video = get_object_or_404(Video, pk=pk, is_active=True)
+        err = _check_subscription(request.user, video)
+        if err:
+            return err
         serializer = SubmitTestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
