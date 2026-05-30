@@ -205,16 +205,11 @@ class VideoSerializer(serializers.ModelSerializer):
         if not obj.video_file or not self._has_access(obj, request):
             return None
         path = '/' + str(obj.video_file.name).lstrip('/')
-        try:
-            user_ip = ''
-            if request:
-                forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
-                user_ip = forwarded.split(',')[0].strip() if forwarded else request.META.get('REMOTE_ADDR', '')
-            return bunny_signed_url(path, user_ip=user_ip)
-        except Exception:
-            from django.conf import settings as _s
-            cdn = getattr(_s, 'BUNNY_CDN_URL', '').rstrip('/')
-            return f"{cdn}{path}" if cdn else None
+        user_ip = ''
+        if request:
+            forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+            user_ip = forwarded.split(',')[0].strip() if forwarded else request.META.get('REMOTE_ADDR', '')
+        return bunny_signed_url(path, user_ip=user_ip)
 
     def get_user_progress(self, obj):
         request = self.context.get('request')
