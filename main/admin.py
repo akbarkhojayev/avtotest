@@ -3,7 +3,7 @@ from django.utils.html import format_html, mark_safe
 
 from .models import (
     UserSession, Video, VideoProgress,
-    RoadSign, TestQuestion, TestAnswer,
+    RoadSign, Category, TestQuestion, TestAnswer,
     TestResult, UserTestAnswer, Book,
     UserSubscription, PaymentRequest,
 )
@@ -109,6 +109,20 @@ class RoadSignAdmin(admin.ModelAdmin):
     sign_image_preview.short_description = "Rasm"
 
 
+# ==================== KATEGORIYA ====================
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ['id', 'name', 'name_ru', 'order', 'is_active', 'question_count']
+    list_editable = ['order', 'is_active']
+    search_fields = ['name', 'name_ru']
+    list_per_page = 25
+
+    def question_count(self, obj):
+        return obj.questions.filter(is_active=True).count()
+    question_count.short_description = "Savollar"
+
+
 # ==================== TEST ====================
 
 class TestAnswerInline(admin.TabularInline):
@@ -119,17 +133,17 @@ class TestAnswerInline(admin.TabularInline):
 
 @admin.register(TestQuestion)
 class TestQuestionAdmin(admin.ModelAdmin):
-    list_display = ['id', 'short_text', 'lesson_video', 'difficulty', 'order', 'is_active', 'answer_count']
-    list_filter = ['lesson_video', 'difficulty', 'is_active']
-    search_fields = ['question_text', 'lesson_video__title']
+    list_display = ['id', 'short_text', 'category', 'lesson_video', 'difficulty', 'order', 'is_active', 'answer_count']
+    list_filter = ['category', 'lesson_video', 'difficulty', 'is_active']
+    search_fields = ['question_text', 'lesson_video__title', 'category__name']
     list_editable = ['order', 'is_active']
     readonly_fields = ['created_at']
-    ordering = ['order']
+    ordering = ['category', 'order']
     inlines = [TestAnswerInline]
     list_per_page = 20
     fieldsets = (
         ("Savol", {
-            'fields': ('lesson_video', 'question_text', 'photo', 'video')
+            'fields': ('category', 'lesson_video', 'question_text', 'photo', 'video')
         }),
         ("Sozlamalar", {
             'fields': ('difficulty', 'order', 'is_active', 'created_at')

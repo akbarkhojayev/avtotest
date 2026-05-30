@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
-    TestQuestion, TestAnswer, TestResult, UserTestAnswer,
+    Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
     Book, PaymentRequest, UserSubscription,
 )
 
@@ -275,6 +275,28 @@ class UpdateProgressSerializer(serializers.Serializer):
     is_completed = serializers.BooleanField(default=False)
 
 
+class CategorySerializer(serializers.ModelSerializer):
+    question_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'name_ru', 'order', 'question_count']
+
+    def get_question_count(self, obj):
+        return obj.questions.filter(is_active=True).count()
+
+
+class CategoryWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ['id', 'name', 'name_ru', 'order', 'is_active']
+        extra_kwargs = {
+            'order': {'default': 0, 'required': False},
+            'is_active': {'default': True, 'required': False},
+            'name_ru': {'required': False},
+        }
+
+
 class TestAnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAnswer
@@ -292,19 +314,21 @@ class TestAnswerWithCorrectSerializer(serializers.ModelSerializer):
 class TestQuestionSerializer(serializers.ModelSerializer):
     answers = TestAnswerSerializer(many=True, read_only=True)
     lesson_video_title = serializers.CharField(source='lesson_video.title', read_only=True, allow_null=True)
+    category_name = serializers.CharField(source='category.name', read_only=True, allow_null=True)
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'lesson_video', 'lesson_video_title', 'question_text', 'photo', 'video', 'difficulty', 'answers']
+        fields = ['id', 'category', 'category_name', 'lesson_video', 'lesson_video_title', 'question_text', 'photo', 'video', 'difficulty', 'answers']
 
 
 class TestQuestionDetailSerializer(serializers.ModelSerializer):
     answers = TestAnswerWithCorrectSerializer(many=True, read_only=True)
     lesson_video_title = serializers.CharField(source='lesson_video.title', read_only=True, allow_null=True)
+    category_name = serializers.CharField(source='category.name', read_only=True, allow_null=True)
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'lesson_video', 'lesson_video_title', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
+        fields = ['id', 'category', 'category_name', 'lesson_video', 'lesson_video_title', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
 
 
 class TestQuestionWriteSerializer(serializers.ModelSerializer):
@@ -315,11 +339,12 @@ class TestQuestionWriteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TestQuestion
-        fields = ['id', 'lesson_video', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
+        fields = ['id', 'category', 'lesson_video', 'question_text', 'photo', 'video', 'difficulty', 'order', 'is_active', 'answers']
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'order': {'default': 0, 'required': False},
             'difficulty': {'default': 'medium', 'required': False},
+            'category': {'required': False},
         }
 
 
@@ -345,13 +370,14 @@ class TestQuestionWithAnswersWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestQuestion
         fields = [
-            'id', 'lesson_video', 'question_text', 'photo', 'video',
+            'id', 'category', 'lesson_video', 'question_text', 'photo', 'video',
             'difficulty', 'order', 'is_active', 'answers',
         ]
         extra_kwargs = {
             'is_active': {'default': True, 'required': False},
             'order': {'default': 0, 'required': False},
             'difficulty': {'default': 'medium', 'required': False},
+            'category': {'required': False},
         }
 
     def validate_answers(self, value):

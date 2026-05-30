@@ -21,7 +21,7 @@ from datetime import timedelta
 
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
-    TestQuestion, TestAnswer, TestResult, UserTestAnswer,
+    Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
     Book, PaymentRequest, UserSubscription,
 )
 from .serializers import (
@@ -30,9 +30,10 @@ from .serializers import (
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
     UpdateProgressSerializer,
+    CategorySerializer, CategoryWriteSerializer,
     TestQuestionSerializer, TestQuestionDetailSerializer,
     TestQuestionWriteSerializer, TestQuestionWithAnswersWriteSerializer,
-    TestAnswerSerializer, TestAnswerWriteSerializer,
+    TestAnswerWriteSerializer,
     TestResultSerializer, TestResultListSerializer,
     SubmitTestSerializer,
     BookSerializer, BookWriteSerializer,
@@ -68,6 +69,7 @@ _ROAD_SIGN_FORM_PARAMS = [
 ]
 
 _QUESTION_FORM_PARAMS = [
+    openapi.Parameter('category',       openapi.IN_FORM, type=openapi.TYPE_INTEGER,                 description='Kategoriya ID (ixtiyoriy)'),
     openapi.Parameter('lesson_video',   openapi.IN_FORM, type=openapi.TYPE_INTEGER,                 description='Video ID (ixtiyoriy)'),
     openapi.Parameter('question_text',  openapi.IN_FORM, type=openapi.TYPE_STRING,  required=True,  description='Savol matni'),
     openapi.Parameter('photo',          openapi.IN_FORM, type=openapi.TYPE_FILE,                    description='Savol rasmi'),
@@ -680,6 +682,60 @@ class VideoTestResultListView(generics.ListAPIView):
 
 
 
+class CategoryListCreateView(generics.ListCreateAPIView):
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CategoryWriteSerializer
+        return CategorySerializer
+
+    def get_queryset(self):
+        return Category.objects.filter(is_active=True)
+
+    @swagger_auto_schema(
+        request_body=CategoryWriteSerializer,
+        responses={201: CategorySerializer()},
+    )
+    def create(self, request, *args, **kwargs):
+        serializer = CategoryWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        category = serializer.save()
+        return Response(CategorySerializer(category).data, status=status.HTTP_201_CREATED)
+
+
+class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    def get_permissions(self):
+        if self.request.method in ('PUT', 'PATCH', 'DELETE'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return CategoryWriteSerializer
+        return CategorySerializer
+
+    def get_queryset(self):
+        return Category.objects.filter(is_active=True)
+
+    @swagger_auto_schema(request_body=CategoryWriteSerializer, responses={200: CategorySerializer()})
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = CategoryWriteSerializer(instance, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(CategorySerializer(serializer.save()).data)
+
+    @swagger_auto_schema(request_body=CategoryWriteSerializer, responses={200: CategorySerializer()})
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = CategoryWriteSerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        return Response(CategorySerializer(serializer.save()).data)
+
+
 class TestQuestionListView(generics.ListCreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
 
@@ -696,7 +752,11 @@ class TestQuestionListView(generics.ListCreateAPIView):
         return TestQuestionSerializer
 
     def get_queryset(self):
-        return TestQuestion.objects.filter(is_active=True).prefetch_related('answers')
+        qs = TestQuestion.objects.filter(is_active=True).prefetch_related('answers')
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            qs = qs.filter(category_id=category_id)
+        return qs
 
     @swagger_auto_schema(
         operation_description=(

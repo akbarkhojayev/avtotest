@@ -4,6 +4,7 @@ from .views import (
     AdminUserListCreateView, AdminUserDetailView,
     VideoListCreateView, VideoRetrieveUpdateDestroyView,
     UpdateProgressView,
+    CategoryListCreateView, CategoryDetailView,
     VideoTestQuestionListView, VideoTestSubmitView, VideoTestResultListView,
     RoadSignListCreateView, RoadSignRetrieveUpdateDestroyView,
     RoadSignCategoryListView,
@@ -45,6 +46,10 @@ urlpatterns = [
     path('api/road-signs/', RoadSignListCreateView.as_view(), name='road-sign-list-create'),
     path('api/road-signs/categories/', RoadSignCategoryListView.as_view(), name='road-sign-categories'),
     path('api/road-signs/<int:pk>/', RoadSignRetrieveUpdateDestroyView.as_view(), name='road-sign-detail'),
+
+    # Kategoriyalar
+    path('api/tests/categories/', CategoryListCreateView.as_view(), name='category-list'),
+    path('api/tests/categories/<int:pk>/', CategoryDetailView.as_view(), name='category-detail'),
 
     # Test (umumiy)
     path('api/tests/questions/', TestQuestionListView.as_view(), name='test-question-list'),
