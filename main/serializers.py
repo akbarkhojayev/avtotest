@@ -186,10 +186,13 @@ class VideoSerializer(serializers.ModelSerializer):
             return False
         if request.user.is_staff:
             return True
-        try:
-            return request.user.subscription.is_active
-        except Exception:
-            return False
+        # Cache per request — bitta so'rovda N ta video uchun 1 ta DB query
+        if not hasattr(request, '_sub_active'):
+            try:
+                request._sub_active = request.user.subscription.is_active
+            except Exception:
+                request._sub_active = False
+        return request._sub_active
 
     def get_video_url(self, obj):
         request = self.context.get('request')
@@ -202,7 +205,16 @@ class VideoSerializer(serializers.ModelSerializer):
         if not obj.video_file or not self._has_access(obj, request):
             return None
         path = '/' + str(obj.video_file.name).lstrip('/')
-        return bunny_signed_url(path)
+        try:
+            user_ip = ''
+            if request:
+                forwarded = request.META.get('HTTP_X_FORWARDED_FOR')
+                user_ip = forwarded.split(',')[0].strip() if forwarded else request.META.get('REMOTE_ADDR', '')
+            return bunny_signed_url(path, user_ip=user_ip)
+        except Exception:
+            from django.conf import settings as _s
+            cdn = getattr(_s, 'BUNNY_CDN_URL', '').rstrip('/')
+            return f"{cdn}{path}" if cdn else None
 
     def get_user_progress(self, obj):
         request = self.context.get('request')

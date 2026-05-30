@@ -317,10 +317,11 @@ def _check_subscription(user, video):
     if not video.is_paid or user.is_staff:
         return None
     try:
-        if user.subscription.is_active:
-            return None
-    except UserSubscription.DoesNotExist:
-        pass
+        active = user.subscription.is_active
+    except Exception:
+        active = False
+    if active:
+        return None
     return Response(
         {"detail": "Bu dars pullik. Obuna sotib oling."},
         status=status.HTTP_403_FORBIDDEN,
@@ -1167,9 +1168,11 @@ class SubscriptionStatusView(APIView):
     def get(self, request):
         try:
             sub = request.user.subscription
-            return Response(SubscriptionSerializer(sub).data)
+            data = SubscriptionSerializer(sub).data
+            data['has_access'] = sub.is_active
+            return Response(data)
         except UserSubscription.DoesNotExist:
-            return Response({"detail": "Faol obuna mavjud emas.", "is_active": False})
+            return Response({"detail": "Faol obuna mavjud emas.", "is_active": False, "has_access": False})
 
 
 class PaymentAdminListView(generics.ListAPIView):
