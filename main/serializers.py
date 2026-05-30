@@ -201,7 +201,7 @@ class VideoSerializer(serializers.ModelSerializer):
         if not obj.video_file or not self._has_access(obj, request):
             return None
         if request:
-            return request.build_absolute_uri(f'/api/videos/{obj.id}/stream/')
+            return request.build_absolute_uri(obj.video_file.url)
         return None
 
     def get_user_progress(self, obj):

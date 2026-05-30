@@ -1,13 +1,10 @@
 import json
-import os
-import re
-import mimetypes
 
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.db import models, transaction
 from django.db.models import Prefetch
-from django.http import QueryDict, StreamingHttpResponse, Http404
+from django.http import QueryDict
 from django.shortcuts import get_object_or_404
 
 from rest_framework import status, generics
@@ -445,107 +442,6 @@ class VideoRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         serializer.is_valid(raise_exception=True)
         video = serializer.save()
         return Response(VideoSerializer(video, context={'request': request}).data)
-
-
-class VideoStreamView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @swagger_auto_schema(
-        responses={
-            200: openapi.Response(
-                description='Stream URL va video ma\'lumotlari',
-                schema=openapi.Schema(
-                    type=openapi.TYPE_OBJECT,
-                    properties={
-                        'message':    openapi.Schema(type=openapi.TYPE_STRING),
-                        'title':      openapi.Schema(type=openapi.TYPE_STRING),
-                        'duration':   openapi.Schema(type=openapi.TYPE_STRING),
-                        'stream_url': openapi.Schema(type=openapi.TYPE_STRING),
-                    }
-                )
-            ),
-            403: openapi.Response(description='Pullik dars — obuna kerak'),
-            404: openapi.Response(description='Video topilmadi'),
-        },
-    )
-    def get(self, request, pk):
-        video = get_object_or_404(Video, pk=pk, is_active=True)
-
-        err = _check_subscription(request.user, video)
-        if err:
-            return err
-
-        if not video.video_file:
-            return Response({"detail": "Video fayli mavjud emas."}, status=status.HTTP_404_NOT_FOUND)
-
-        # ?token= yoki Range header bo'lsa — <video> player so'rovi → binary streaming
-        if request.query_params.get('token') or request.META.get('HTTP_RANGE'):
-            return self._stream(request, video)
-
-        # Oddiy API so'rov (Authorization header) → JSON response
-        token = request.META.get('HTTP_AUTHORIZATION', '').replace('Bearer ', '').strip()
-        stream_url = request.build_absolute_uri(f'/api/videos/{pk}/stream/')
-        if token:
-            stream_url += f'?token={token}'
-
-        return Response({
-            "message": "Video tayyor.",
-            "title": video.title,
-            "duration": video.duration or '',
-            "stream_url": stream_url,
-        })
-
-    def _stream(self, request, video):
-        video_path = video.video_file.path
-        if not os.path.exists(video_path):
-            raise Http404("Video fayli topilmadi.")
-
-        file_size = os.path.getsize(video_path)
-        content_type, _ = mimetypes.guess_type(video_path)
-        content_type = content_type or 'video/mp4'
-
-        range_header = request.META.get('HTTP_RANGE', '').strip()
-        range_match = re.match(r'bytes=(\d+)-(\d*)', range_header)
-
-        if range_match:
-            first_byte = int(range_match.group(1))
-            last_byte = int(range_match.group(2)) if range_match.group(2) else file_size - 1
-            last_byte = min(last_byte, file_size - 1)
-            length = last_byte - first_byte + 1
-            response = StreamingHttpResponse(
-                self._file_iterator(video_path, offset=first_byte, length=length),
-                status=206, content_type=content_type,
-            )
-            response['Content-Range'] = f'bytes {first_byte}-{last_byte}/{file_size}'
-            response['Content-Length'] = str(length)
-        else:
-            response = StreamingHttpResponse(
-                self._file_iterator(video_path), content_type=content_type,
-            )
-            response['Content-Length'] = str(file_size)
-
-        response['Content-Disposition'] = 'inline'
-        response['Accept-Ranges'] = 'bytes'
-        response['X-Content-Type-Options'] = 'nosniff'
-        response['Cache-Control'] = 'no-store, no-cache, must-revalidate, private'
-        response['X-Frame-Options'] = 'SAMEORIGIN'
-        return response
-
-    @staticmethod
-    def _file_iterator(path, offset=0, length=None, chunk_size=8192):
-        with open(path, 'rb') as f:
-            f.seek(offset)
-            remaining = length
-            while True:
-                read_size = chunk_size if remaining is None else min(chunk_size, remaining)
-                chunk = f.read(read_size)
-                if not chunk:
-                    break
-                yield chunk
-                if remaining is not None:
-                    remaining -= len(chunk)
-                    if remaining <= 0:
-                        break
 
 
 class UpdateProgressView(APIView):

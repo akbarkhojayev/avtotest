@@ -3,7 +3,7 @@ from .views import (
     LoginView, LogoutView, RegisterView, ProfileView,
     AdminUserListCreateView, AdminUserDetailView,
     VideoListCreateView, VideoRetrieveUpdateDestroyView,
-    VideoStreamView, UpdateProgressView,
+    UpdateProgressView,
     VideoTestQuestionListView, VideoTestSubmitView, VideoTestResultListView,
     RoadSignListCreateView, RoadSignRetrieveUpdateDestroyView,
     RoadSignCategoryListView,
@@ -34,7 +34,6 @@ urlpatterns = [
     # Videolar
     path('api/videos/', VideoListCreateView.as_view(), name='video-list-create'),
     path('api/videos/<int:pk>/', VideoRetrieveUpdateDestroyView.as_view(), name='video-detail'),
-    path('api/videos/<int:pk>/stream/', VideoStreamView.as_view(), name='video-stream'),
     path('api/videos/<int:pk>/progress/', UpdateProgressView.as_view(), name='update-progress'),
 
     # Video testlari
