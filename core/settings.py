@@ -186,6 +186,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 BUNNY_STORAGE_ZONE = 'avtomaktab'
 BUNNY_ACCESS_KEY   = '0bf8b1cc-798c-49de-8b7f16dba98d-d48a-47c3'
 BUNNY_CDN_URL      = 'https://avtomaktab.b-cdn.net'
+BUNNY_TOKEN_KEY    = '243241be-2d57-40ba-934c-925e061841d7'
+BUNNY_URL_EXPIRY   = 4 * 60 * 60  # 4 soat (sekundda)
 
 # ==================== JAZZMIN ====================
 

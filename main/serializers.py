@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth.models import User
+from .storage import bunny_signed_url
 from .models import (
     Video, VideoProgress, RoadSign, UserSession,
     Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
@@ -200,9 +201,8 @@ class VideoSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if not obj.video_file or not self._has_access(obj, request):
             return None
-        if request:
-            return request.build_absolute_uri(obj.video_file.url)
-        return None
+        path = '/' + str(obj.video_file.name).lstrip('/')
+        return bunny_signed_url(path)
 
     def get_user_progress(self, obj):
         request = self.context.get('request')

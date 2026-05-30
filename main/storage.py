@@ -1,7 +1,28 @@
+import hashlib
+import base64
+import time
+
 import requests
 from django.conf import settings
 from django.core.files.storage import Storage
 from django.utils.deconstruct import deconstructible
+
+
+def bunny_signed_url(path, expiry_seconds=None):
+    """
+    BunnyCDN Token Authentication bilan vaqtli URL yaratadi.
+    path: '/videos/filename.mp4' kabi slash bilan boshlanishi kerak.
+    """
+    token_key = settings.BUNNY_TOKEN_KEY
+    cdn_url = settings.BUNNY_CDN_URL.rstrip('/')
+    expires = int(time.time()) + (expiry_seconds or settings.BUNNY_URL_EXPIRY)
+
+    raw = f"{token_key}{path}{expires}"
+    token = base64.b64encode(
+        hashlib.md5(raw.encode()).digest()
+    ).decode().replace('+', '-').replace('/', '_').rstrip('=')
+
+    return f"{cdn_url}{path}?token={token}&expires={expires}"
 
 
 @deconstructible
