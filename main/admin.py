@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.utils.html import format_html
+from django.utils.html import format_html, mark_safe
 
 from .models import (
     UserSession, Video, VideoProgress,
@@ -186,10 +186,8 @@ class TestResultAdmin(admin.ModelAdmin):
 
     def passed_badge(self, obj):
         if obj.passed:
-            return format_html(
-                '<span style="color:#28a745;font-weight:bold;">✔ O\'tdi</span>'
-            )
-        return format_html('<span style="color:#dc3545;">✘ O\'tmadi</span>')
+            return mark_safe('<span style="color:#28a745;font-weight:bold;">&#10004; O\'tdi</span>')
+        return mark_safe('<span style="color:#dc3545;">&#10008; O\'tmadi</span>')
     passed_badge.short_description = "Natija"
 
     def has_add_permission(self, request):
@@ -240,8 +238,8 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
 
     def subscription_active(self, obj):
         if obj.is_active:
-            return format_html('<span style="color:#28a745;font-weight:bold;">✔ Faol</span>')
-        return format_html('<span style="color:#dc3545;">✘ Tugagan</span>')
+            return mark_safe('<span style="color:#28a745;font-weight:bold;">&#10004; Faol</span>')
+        return mark_safe('<span style="color:#dc3545;">&#10008; Tugagan</span>')
     subscription_active.short_description = "Holati"
 
 
