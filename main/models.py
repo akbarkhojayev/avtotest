@@ -249,6 +249,55 @@ class PaymentRequest(models.Model):
         ordering = ['-created_at']
 
 
+class PaymentCard(models.Model):
+    name        = models.CharField(max_length=200, help_text="Karta egasining ismi")
+    card_number = models.CharField(max_length=19, help_text="Karta raqami: 8600 0000 0000 0000")
+    is_active   = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.name} — {self.card_number}"
+
+    class Meta:
+        verbose_name = "To'lov kartasi"
+        verbose_name_plural = "To'lov kartalari"
+
+
+class Comment(models.Model):
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='comments')
+    text       = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active  = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.user.username}: {self.text[:50]}"
+
+    class Meta:
+        verbose_name = "Izoh"
+        verbose_name_plural = "Izohlar"
+        ordering = ['-created_at']
+
+
+class SiteSettings(models.Model):
+    phone         = models.CharField(max_length=20, blank=True)
+    email         = models.EmailField(blank=True)
+    telegram_url  = models.URLField(blank=True)
+    address       = models.TextField(blank=True)
+    working_hours = models.CharField(max_length=100, blank=True, help_text="Masalan: Dushanba–Juma: 09:00–18:00")
+    latitude      = models.DecimalField(max_digits=9, decimal_places=6, default=41.2995)
+    longitude     = models.DecimalField(max_digits=9, decimal_places=6, default=69.2401)
+
+    def save(self, *args, **kwargs):
+        self.pk = 1  # Har doim bitta instance
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Sayt sozlamalari"
+
+    class Meta:
+        verbose_name = "Sayt sozlamalari"
+        verbose_name_plural = "Sayt sozlamalari"
+
+
 class Book(models.Model):
     title = models.CharField(max_length=200)
     title_ru = models.CharField(max_length=200, blank=True, null=True)

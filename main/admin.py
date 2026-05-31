@@ -6,6 +6,7 @@ from .models import (
     RoadSign, Category, TestQuestion, TestAnswer,
     TestResult, UserTestAnswer, Book,
     UserSubscription, PaymentRequest,
+    PaymentCard, Comment, SiteSettings,
 )
 
 
@@ -288,3 +289,52 @@ class PaymentRequestAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="max-height:200px; border-radius:4px;" />', obj.receipt.url)
         return "—"
     receipt_preview.short_description = "Chek rasmi"
+
+
+# ==================== TO'LOV KARTASI ====================
+
+@admin.register(PaymentCard)
+class PaymentCardAdmin(admin.ModelAdmin):
+    list_display  = ['name', 'card_number', 'is_active']
+    list_editable = ['is_active']
+    search_fields = ['name', 'card_number']
+    list_per_page = 25
+
+
+# ==================== IZOHLAR ====================
+
+@admin.register(Comment)
+class CommentAdmin(admin.ModelAdmin):
+    list_display  = ['user', 'short_text', 'is_active', 'created_at']
+    list_filter   = ['is_active', 'created_at']
+    list_editable = ['is_active']
+    search_fields = ['user__username', 'text']
+    readonly_fields = ['user', 'created_at']
+    list_per_page = 25
+
+    def short_text(self, obj):
+        return obj.text[:80] + '…' if len(obj.text) > 80 else obj.text
+    short_text.short_description = "Izoh"
+
+    def has_add_permission(self, request):
+        return False
+
+
+# ==================== SAYT SOZLAMALARI ====================
+
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(admin.ModelAdmin):
+    fieldsets = (
+        ("Aloqa ma'lumotlari", {
+            'fields': ('phone', 'email', 'telegram_url', 'address', 'working_hours')
+        }),
+        ("Xarita koordinatalari", {
+            'fields': ('latitude', 'longitude')
+        }),
+    )
+
+    def has_add_permission(self, request):
+        return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
