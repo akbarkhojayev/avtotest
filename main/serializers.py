@@ -568,7 +568,11 @@ class CommentSerializer(serializers.ModelSerializer):
 class CommentWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
-        fields = ['id', 'text']
+        fields = ['id', 'text', 'is_active']
+        extra_kwargs = {
+            'text': {'required': False},
+            'is_active': {'required': False},
+        }
 
 
 # ==================== SITE SETTINGS ====================

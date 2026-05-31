@@ -1353,12 +1353,29 @@ class CommentListCreateView(generics.ListCreateAPIView):
         serializer.save(user=self.request.user)
 
 
-class CommentDetailView(generics.DestroyAPIView):
+class CommentDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [IsAdminUser]
-    serializer_class = CommentSerializer
+
+    def get_serializer_class(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return CommentWriteSerializer
+        return CommentSerializer
 
     def get_queryset(self):
         return Comment.objects.all()
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN)},
+        )
+    )
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = CommentWriteSerializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(CommentSerializer(instance).data)
 
     def perform_destroy(self, instance):
         instance.is_active = False
