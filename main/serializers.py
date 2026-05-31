@@ -13,30 +13,6 @@ class LoginSerializer(serializers.Serializer):
     device_id = serializers.CharField(help_text="Qurilma identifikatori (browser fingerprint)")
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=6)
-    password2 = serializers.CharField(write_only=True, label="Parolni tasdiqlang")
-
-    class Meta:
-        model = User
-        fields = ['username', 'password', 'password2', 'first_name', 'last_name', 'email']
-        extra_kwargs = {
-            'first_name': {'required': False},
-            'last_name': {'required': False},
-            'email': {'required': False},
-        }
-
-    def validate(self, data):
-        if data['password'] != data['password2']:
-            raise serializers.ValidationError({"password2": "Parollar mos kelmaydi."})
-        return data
-
-    def create(self, validated_data):
-        validated_data.pop('password2')
-        password = validated_data.pop('password')
-        user = User.objects.create_user(password=password, **validated_data)
-        UserSession.objects.get_or_create(user=user, defaults={'role': 'user'})
-        return user
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -89,10 +65,11 @@ class UserSerializer(serializers.ModelSerializer):
 
 class AdminUserSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'is_active', 'date_joined']
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'role', 'is_active', 'date_joined', 'created_by']
         read_only_fields = ['date_joined']
 
     def get_role(self, obj):
@@ -100,6 +77,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
             return obj.session_device.role
         except Exception:
             return 'user'
+
+    def get_created_by(self, obj):
+        try:
+            admin = obj.session_device.created_by
+            return {'id': admin.id, 'username': admin.username} if admin else None
+        except Exception:
+            return None
 
 
 class AdminUserCreateSerializer(serializers.ModelSerializer):
@@ -119,10 +103,11 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         role = validated_data.pop('role', 'user')
         password = validated_data.pop('password')
+        created_by = validated_data.pop('created_by', None)
         if role == 'admin':
             validated_data['is_staff'] = True
         user = User.objects.create_user(password=password, **validated_data)
-        UserSession.objects.create(user=user, role=role)
+        UserSession.objects.create(user=user, role=role, created_by=created_by)
         return user
 
 
@@ -278,13 +263,18 @@ class UpdateProgressSerializer(serializers.Serializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     question_count = serializers.SerializerMethodField()
+    questions = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
-        fields = ['id', 'name', 'name_ru', 'order', 'question_count']
+        fields = ['id', 'name', 'name_ru', 'order', 'question_count', 'questions']
 
     def get_question_count(self, obj):
         return obj.questions.filter(is_active=True).count()
+
+    def get_questions(self, obj):
+        qs = obj.questions.filter(is_active=True).prefetch_related('answers')
+        return TestQuestionSerializer(qs, many=True, context=self.context).data
 
 
 class CategoryWriteSerializer(serializers.ModelSerializer):

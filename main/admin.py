@@ -13,10 +13,10 @@ from .models import (
 
 @admin.register(UserSession)
 class UserSessionAdmin(admin.ModelAdmin):
-    list_display = ['user', 'role', 'device_id', 'last_login_ip', 'updated_at']
+    list_display = ['user', 'role', 'created_by', 'device_id', 'last_login_ip', 'updated_at']
     list_filter = ['role']
     list_editable = ['role']
-    search_fields = ['user__username', 'device_id', 'last_login_ip']
+    search_fields = ['user__username', 'device_id', 'last_login_ip', 'created_by__username']
     readonly_fields = ['created_at', 'updated_at']
     list_per_page = 25
 

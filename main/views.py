@@ -25,7 +25,7 @@ from .models import (
     Book, PaymentRequest, UserSubscription,
 )
 from .serializers import (
-    LoginSerializer, UserSerializer, RegisterSerializer, UserUpdateSerializer,
+    LoginSerializer, UserSerializer, UserUpdateSerializer,
     AdminUserSerializer, AdminUserCreateSerializer, AdminUserUpdateSerializer,
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
@@ -179,20 +179,6 @@ class LogoutView(APIView):
         return Response({"message": "Muvaffaqiyatli chiqdingiz."})
 
 
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
-
-    @swagger_auto_schema(request_body=RegisterSerializer)
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response({
-            "message": "Muvaffaqiyatli ro'yxatdan o'tdingiz.",
-            "user": UserSerializer(user).data,
-        }, status=status.HTTP_201_CREATED)
-
-
 class AdminUserListCreateView(generics.ListCreateAPIView):
     permission_classes = [IsAdminUser]
 
@@ -219,7 +205,7 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = AdminUserCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        user = serializer.save(created_by=request.user)
         return Response(AdminUserSerializer(user).data, status=status.HTTP_201_CREATED)
 
 

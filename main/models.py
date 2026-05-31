@@ -10,6 +10,12 @@ class UserSession(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='session_device')
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='user')
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='created_users',
+        verbose_name="Qo'shgan admin",
+    )
     device_id = models.CharField(max_length=255, blank=True, null=True)
     last_login_ip = models.GenericIPAddressField(blank=True, null=True)
     token_jti = models.CharField(max_length=255, blank=True, null=True)
