@@ -201,7 +201,23 @@ class AdminUserListCreateView(generics.ListCreateAPIView):
             )
         return queryset
 
-    @swagger_auto_schema(request_body=AdminUserCreateSerializer, responses={201: AdminUserSerializer()})
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['username', 'password', 'password2'],
+            properties={
+                'username':   openapi.Schema(type=openapi.TYPE_STRING, description='Login'),
+                'password':   openapi.Schema(type=openapi.TYPE_STRING, format='password', description='Parol (min 6 ta belgi)'),
+                'password2':  openapi.Schema(type=openapi.TYPE_STRING, format='password', description='Parolni tasdiqlang'),
+                'first_name': openapi.Schema(type=openapi.TYPE_STRING),
+                'last_name':  openapi.Schema(type=openapi.TYPE_STRING),
+                'email':      openapi.Schema(type=openapi.TYPE_STRING, format='email'),
+                'role':       openapi.Schema(type=openapi.TYPE_STRING, enum=['user', 'admin'], default='user'),
+                'is_active':  openapi.Schema(type=openapi.TYPE_BOOLEAN, default=True),
+            },
+        ),
+        responses={201: AdminUserSerializer()},
+    )
     def create(self, request, *args, **kwargs):
         serializer = AdminUserCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
