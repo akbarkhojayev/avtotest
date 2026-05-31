@@ -87,12 +87,13 @@ class AdminUserSerializer(serializers.ModelSerializer):
 
 
 class AdminUserCreateSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, min_length=6)
+    password  = serializers.CharField(write_only=True, min_length=6, label="Parol")
+    password2 = serializers.CharField(write_only=True, min_length=6, label="Parolni tasdiqlang")
     role = serializers.ChoiceField(choices=['user', 'admin'], default='user', required=False)
 
     class Meta:
         model = User
-        fields = ['username', 'password', 'first_name', 'last_name', 'email', 'is_active', 'role']
+        fields = ['username', 'password', 'password2', 'first_name', 'last_name', 'email', 'is_active', 'role']
         extra_kwargs = {
             'first_name': {'required': False},
             'last_name': {'required': False},
@@ -100,8 +101,14 @@ class AdminUserCreateSerializer(serializers.ModelSerializer):
             'is_active': {'default': True, 'required': False},
         }
 
+    def validate(self, data):
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password2": "Parollar mos kelmaydi."})
+        return data
+
     def create(self, validated_data):
         role = validated_data.pop('role', 'user')
+        validated_data.pop('password2')
         password = validated_data.pop('password')
         created_by = validated_data.pop('created_by', None)
         if role == 'admin':
