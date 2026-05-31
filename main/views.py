@@ -1081,6 +1081,25 @@ class DashboardView(APIView):
         tests_month      = TestResult.objects.filter(completed_at__gte=month_start)
         tests_passed     = tests_month.filter(passed=True).count()
 
+        # Har bir admin qo'shgan userlar statistikasi
+        admin_stats = (
+            UserSession.objects
+            .filter(created_by__isnull=False)
+            .values('created_by__id', 'created_by__username', 'created_by__first_name', 'created_by__last_name')
+            .annotate(total=models.Count('id'))
+            .order_by('-total')
+        )
+        admins_activity = [
+            {
+                "admin_id":    row['created_by__id'],
+                "username":    row['created_by__username'],
+                "full_name":   f"{row['created_by__first_name']} {row['created_by__last_name']}".strip()
+                               or row['created_by__username'],
+                "users_added": row['total'],
+            }
+            for row in admin_stats
+        ]
+
         return Response({
             "users": {
                 "total":          total_users,
@@ -1105,6 +1124,7 @@ class DashboardView(APIView):
                 "this_month_total":  tests_month.count(),
                 "this_month_passed": tests_passed,
             },
+            "admins_activity": admins_activity,
         })
 
 
