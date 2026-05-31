@@ -23,6 +23,7 @@ from .models import (
     Video, VideoProgress, RoadSign, UserSession,
     Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
     Book, PaymentRequest, UserSubscription,
+    PaymentCard, Comment, SiteSettings, Notification,
 )
 from .serializers import (
     LoginSerializer, UserSerializer, UserUpdateSerializer,
@@ -40,6 +41,8 @@ from .serializers import (
     SubscriptionSerializer,
     PaymentRequestCreateSerializer, PaymentRequestSerializer,
     PaymentRequestAdminSerializer, PaymentReviewSerializer,
+    PaymentCardSerializer, CommentSerializer, CommentWriteSerializer,
+    SiteSettingsSerializer, NotificationSerializer,
 )
 
 
@@ -1176,6 +1179,20 @@ class PaymentRequestCreateView(APIView):
         serializer = PaymentRequestCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payment = serializer.save(user=request.user)
+
+        # Barcha adminlarga bildirishnoma
+        admins = User.objects.filter(is_staff=True)
+        Notification.objects.bulk_create([
+            Notification(
+                user=admin,
+                title="Yangi to'lov so'rovi",
+                message=f"{request.user.get_full_name() or request.user.username} "
+                        f"{payment.amount:,} so'm to'lov cheki yubordi.",
+                type='payment_received',
+            )
+            for admin in admins
+        ])
+
         return Response(
             PaymentRequestSerializer(payment, context={'request': request}).data,
             status=status.HTTP_201_CREATED,
@@ -1265,6 +1282,13 @@ class PaymentReviewView(APIView):
                         expires_at=now + timedelta(days=subscription_days),
                     )
 
+                Notification.objects.create(
+                    user=payment.user,
+                    title="To'lovingiz tasdiqlandi",
+                    message=f"{payment.amount:,} so'mlik to'lovingiz tasdiqlandi. "
+                            f"{subscription_days} kunlik obuna faollashtirildi.",
+                    type='payment_approved',
+                )
                 return Response({
                     "detail": f"Tasdiqlandi. Foydalanuvchiga {subscription_days} kunlik obuna berildi.",
                     "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
@@ -1272,7 +1296,127 @@ class PaymentReviewView(APIView):
             else:
                 payment.status = 'rejected'
                 payment.save()
+                Notification.objects.create(
+                    user=payment.user,
+                    title="To'lovingiz rad etildi",
+                    message=f"{payment.amount:,} so'mlik to'lovingiz rad etildi."
+                            + (f" Sabab: {admin_note}" if admin_note else ""),
+                    type='payment_rejected',
+                )
                 return Response({
                     "detail": "Rad etildi.",
                     "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
                 })
+
+
+# ==================== PAYMENT CARD ====================
+
+class PaymentCardListCreateView(generics.ListCreateAPIView):
+    serializer_class = PaymentCardSerializer
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        return PaymentCard.objects.filter(is_active=True)
+
+
+class PaymentCardDetailView(generics.RetrieveUpdateDestroyAPIView):
+    serializer_class = PaymentCardSerializer
+
+    def get_permissions(self):
+        if self.request.method in ('PUT', 'PATCH', 'DELETE'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        return PaymentCard.objects.all()
+
+
+# ==================== COMMENT ====================
+
+class CommentListCreateView(generics.ListCreateAPIView):
+    def get_permissions(self):
+        return [IsAuthenticated()]
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CommentWriteSerializer
+        return CommentSerializer
+
+    def get_queryset(self):
+        return Comment.objects.filter(is_active=True)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class CommentDetailView(generics.DestroyAPIView):
+    permission_classes = [IsAdminUser]
+    serializer_class = CommentSerializer
+
+    def get_queryset(self):
+        return Comment.objects.all()
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save()
+
+
+# ==================== SITE SETTINGS ====================
+
+class SiteSettingsView(APIView):
+    def get_permissions(self):
+        if self.request.method in ('PUT', 'PATCH'):
+            return [IsAdminUser()]
+        return [IsAuthenticated()]
+
+    def get(self, request):
+        obj, _ = SiteSettings.objects.get_or_create(pk=1)
+        return Response(SiteSettingsSerializer(obj).data)
+
+    @swagger_auto_schema(request_body=SiteSettingsSerializer)
+    def patch(self, request):
+        obj, _ = SiteSettings.objects.get_or_create(pk=1)
+        serializer = SiteSettingsSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    @swagger_auto_schema(request_body=SiteSettingsSerializer)
+    def put(self, request):
+        obj, _ = SiteSettings.objects.get_or_create(pk=1)
+        serializer = SiteSettingsSerializer(obj, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+# ==================== NOTIFICATION ====================
+
+class NotificationListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user)
+
+
+class NotificationReadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        updated = Notification.objects.filter(pk=pk, user=request.user).update(is_read=True)
+        if not updated:
+            return Response({"detail": "Topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "O'qildi."})
+
+
+class NotificationReadAllView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+        return Response({"detail": "Barchasi o'qildi."})

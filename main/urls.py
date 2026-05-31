@@ -16,6 +16,10 @@ from .views import (
     PaymentRequestCreateView, SubscriptionStatusView,
     PaymentAdminListView, PaymentReviewView,
     DashboardView,
+    PaymentCardListCreateView, PaymentCardDetailView,
+    CommentListCreateView, CommentDetailView,
+    SiteSettingsView,
+    NotificationListView, NotificationReadView, NotificationReadAllView,
 )
 
 urlpatterns = [
@@ -69,4 +73,20 @@ urlpatterns = [
     path('api/payments/subscription/', SubscriptionStatusView.as_view(), name='subscription-status'),
     path('api/payments/admin/', PaymentAdminListView.as_view(), name='payment-admin-list'),
     path('api/payments/<int:pk>/review/', PaymentReviewView.as_view(), name='payment-review'),
+
+    # To'lov kartalari
+    path('api/cards/', PaymentCardListCreateView.as_view(), name='card-list'),
+    path('api/cards/<int:pk>/', PaymentCardDetailView.as_view(), name='card-detail'),
+
+    # Izohlar
+    path('api/comments/', CommentListCreateView.as_view(), name='comment-list'),
+    path('api/comments/<int:pk>/', CommentDetailView.as_view(), name='comment-detail'),
+
+    # Sayt sozlamalari
+    path('api/settings/', SiteSettingsView.as_view(), name='site-settings'),
+
+    # Bildirishnomalar
+    path('api/notifications/', NotificationListView.as_view(), name='notification-list'),
+    path('api/notifications/<int:pk>/read/', NotificationReadView.as_view(), name='notification-read'),
+    path('api/notifications/read-all/', NotificationReadAllView.as_view(), name='notification-read-all'),
 ]

@@ -298,6 +298,29 @@ class SiteSettings(models.Model):
         verbose_name_plural = "Sayt sozlamalari"
 
 
+class Notification(models.Model):
+    TYPE_CHOICES = [
+        ('payment_received', "To'lov keldi"),
+        ('payment_approved', "To'lov tasdiqlandi"),
+        ('payment_rejected', "To'lov rad etildi"),
+        ('general',          'Umumiy'),
+    ]
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    title      = models.CharField(max_length=200)
+    message    = models.TextField()
+    type       = models.CharField(max_length=30, choices=TYPE_CHOICES, default='general')
+    is_read    = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} — {self.title}"
+
+    class Meta:
+        verbose_name = "Bildirishnoma"
+        verbose_name_plural = "Bildirishnomalar"
+        ordering = ['-created_at']
+
+
 class Book(models.Model):
     title = models.CharField(max_length=200)
     title_ru = models.CharField(max_length=200, blank=True, null=True)

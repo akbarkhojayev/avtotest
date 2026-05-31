@@ -4,6 +4,7 @@ from .models import (
     Video, VideoProgress, RoadSign, UserSession,
     Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
     Book, PaymentRequest, UserSubscription,
+    PaymentCard, Comment, SiteSettings, Notification,
 )
 
 
@@ -539,4 +540,49 @@ class PaymentReviewSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=['approve', 'reject'])
     admin_note = serializers.CharField(required=False, allow_blank=True)
     subscription_days = serializers.IntegerField(min_value=1, default=30, required=False)
+
+
+# ==================== PAYMENT CARD ====================
+
+class PaymentCardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PaymentCard
+        fields = ['id', 'name', 'card_number', 'is_active']
+        extra_kwargs = {'is_active': {'default': True, 'required': False}}
+
+
+# ==================== COMMENT ====================
+
+class CommentSerializer(serializers.ModelSerializer):
+    username = serializers.CharField(source='user.username', read_only=True)
+    full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Comment
+        fields = ['id', 'username', 'full_name', 'text', 'created_at']
+
+    def get_full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+
+
+class CommentWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Comment
+        fields = ['id', 'text']
+
+
+# ==================== SITE SETTINGS ====================
+
+class SiteSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SiteSettings
+        fields = ['phone', 'email', 'telegram_url', 'address', 'working_hours', 'latitude', 'longitude']
+
+
+# ==================== NOTIFICATION ====================
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'title', 'message', 'type', 'is_read', 'created_at']
 
