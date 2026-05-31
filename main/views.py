@@ -1089,16 +1089,32 @@ class DashboardView(APIView):
             .annotate(total=models.Count('id'))
             .order_by('-total')
         )
-        admins_activity = [
-            {
-                "admin_id":    row['created_by__id'],
+
+        # Tolov qilgan userlar seti (approved bo'lgan)
+        paid_user_ids = set(
+            PaymentRequest.objects.filter(status='approved')
+            .values_list('user_id', flat=True)
+        )
+
+        admins_activity = []
+        for row in admin_stats:
+            admin_id = row['created_by__id']
+            user_ids = list(
+                UserSession.objects
+                .filter(created_by_id=admin_id)
+                .values_list('user_id', flat=True)
+            )
+            paid   = sum(1 for uid in user_ids if uid in paid_user_ids)
+            unpaid = len(user_ids) - paid
+            admins_activity.append({
+                "admin_id":    admin_id,
                 "username":    row['created_by__username'],
                 "full_name":   f"{row['created_by__first_name']} {row['created_by__last_name']}".strip()
                                or row['created_by__username'],
                 "users_added": row['total'],
-            }
-            for row in admin_stats
-        ]
+                "paid":        paid,
+                "not_paid":    unpaid,
+            })
 
         return Response({
             "users": {
