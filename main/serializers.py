@@ -14,6 +14,32 @@ class LoginSerializer(serializers.Serializer):
     device_id = serializers.CharField(help_text="Qurilma identifikatori (browser fingerprint)")
 
 
+class RegisterSerializer(serializers.ModelSerializer):
+    password  = serializers.CharField(write_only=True, min_length=6)
+    password2 = serializers.CharField(write_only=True, label="Parolni tasdiqlang")
+
+    class Meta:
+        model = User
+        fields = ['username', 'password', 'password2', 'first_name', 'last_name', 'email']
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name':  {'required': False},
+            'email':      {'required': False},
+        }
+
+    def validate(self, data):
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError({"password2": "Parollar mos kelmaydi."})
+        return data
+
+    def create(self, validated_data):
+        validated_data.pop('password2')
+        password = validated_data.pop('password')
+        user = User.objects.create_user(password=password, **validated_data)
+        UserSession.objects.get_or_create(user=user, defaults={'role': 'user'})
+        return user
+
+
 
 
 class UserUpdateSerializer(serializers.ModelSerializer):
@@ -490,11 +516,9 @@ class BookWriteSerializer(serializers.ModelSerializer):
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):
-    is_active = serializers.BooleanField(read_only=True)
-
     class Meta:
         model = UserSubscription
-        fields = ['id', 'expires_at', 'is_active', 'created_at']
+        fields = ['id', 'is_active', 'created_at']
 
 
 class PaymentRequestCreateSerializer(serializers.ModelSerializer):
@@ -513,8 +537,7 @@ class PaymentRequestSerializer(serializers.ModelSerializer):
         model = PaymentRequest
         fields = [
             'id', 'amount', 'receipt', 'comment',
-            'status', 'status_display', 'admin_note',
-            'subscription_days', 'created_at',
+            'status', 'status_display', 'admin_note', 'created_at',
         ]
 
 
@@ -528,7 +551,7 @@ class PaymentRequestAdminSerializer(serializers.ModelSerializer):
         model = PaymentRequest
         fields = [
             'id', 'username', 'full_name', 'amount', 'receipt', 'comment',
-            'status', 'status_display', 'admin_note', 'subscription_days',
+            'status', 'status_display', 'admin_note',
             'reviewed_by_name', 'reviewed_at', 'created_at',
         ]
 
@@ -537,9 +560,8 @@ class PaymentRequestAdminSerializer(serializers.ModelSerializer):
 
 
 class PaymentReviewSerializer(serializers.Serializer):
-    action = serializers.ChoiceField(choices=['approve', 'reject'])
+    action     = serializers.ChoiceField(choices=['approve', 'reject'])
     admin_note = serializers.CharField(required=False, allow_blank=True)
-    subscription_days = serializers.IntegerField(min_value=1, default=30, required=False)
 
 
 # ==================== PAYMENT CARD ====================

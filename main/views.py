@@ -26,7 +26,7 @@ from .models import (
     PaymentCard, Comment, SiteSettings, Notification,
 )
 from .serializers import (
-    LoginSerializer, UserSerializer, UserUpdateSerializer,
+    LoginSerializer, RegisterSerializer, UserSerializer, UserUpdateSerializer,
     AdminUserSerializer, AdminUserCreateSerializer, AdminUserUpdateSerializer,
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
@@ -165,6 +165,20 @@ class LoginView(APIView):
             "refresh": str(refresh),
             "user": UserSerializer(user).data
         })
+
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=RegisterSerializer)
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response({
+            "message": "Muvaffaqiyatli ro'yxatdan o'tdingiz.",
+            "user": UserSerializer(user).data,
+        }, status=status.HTTP_201_CREATED)
 
 
 class LogoutView(APIView):
@@ -1061,7 +1075,7 @@ class DashboardView(APIView):
 
         total_users      = User.objects.filter(is_staff=False).count()
         new_users_month  = User.objects.filter(is_staff=False, date_joined__gte=month_start).count()
-        active_subs      = UserSubscription.objects.filter(expires_at__gt=now).count()
+        active_subs      = UserSubscription.objects.filter(is_active=True).count()
 
         payments_month   = PaymentRequest.objects.filter(created_at__gte=month_start)
         payments_pending = payments_month.filter(status='pending').count()
@@ -1097,6 +1111,15 @@ class DashboardView(APIView):
             .values_list('user_id', flat=True)
         )
 
+        # Har admin tasdiqlagan to'lovlar summasi
+        admin_approved_amounts = {
+            row['reviewed_by_id']: row['total_amount']
+            for row in PaymentRequest.objects
+                .filter(status='approved', reviewed_by__isnull=False)
+                .values('reviewed_by_id')
+                .annotate(total_amount=models.Sum('amount'))
+        }
+
         admins_activity = []
         for row in admin_stats:
             admin_id = row['created_by__id']
@@ -1108,13 +1131,14 @@ class DashboardView(APIView):
             paid   = sum(1 for uid in user_ids if uid in paid_user_ids)
             unpaid = len(user_ids) - paid
             admins_activity.append({
-                "admin_id":    admin_id,
-                "username":    row['created_by__username'],
-                "full_name":   f"{row['created_by__first_name']} {row['created_by__last_name']}".strip()
-                               or row['created_by__username'],
-                "users_added": row['total'],
-                "paid":        paid,
-                "not_paid":    unpaid,
+                "admin_id":             admin_id,
+                "username":             row['created_by__username'],
+                "full_name":            f"{row['created_by__first_name']} {row['created_by__last_name']}".strip()
+                                        or row['created_by__username'],
+                "users_added":          row['total'],
+                "paid":                 paid,
+                "not_paid":             unpaid,
+                "total_amount_approved": admin_approved_amounts.get(admin_id, 0),
             })
 
         return Response({
@@ -1246,12 +1270,10 @@ class PaymentReviewView(APIView):
         serializer = PaymentReviewSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        action            = serializer.validated_data['action']
-        admin_note        = serializer.validated_data.get('admin_note', '')
-        subscription_days = serializer.validated_data.get('subscription_days', 30)
+        action     = serializer.validated_data['action']
+        admin_note = serializer.validated_data.get('admin_note', '')
 
         with transaction.atomic():
-            # select_for_update — ikki admin bir vaqtda tasdiqlamasin
             payment = PaymentRequest.objects.select_for_update().filter(pk=pk).first()
             if not payment:
                 return Response({"detail": "To'lov topilmadi."}, status=status.HTTP_404_NOT_FOUND)
@@ -1262,36 +1284,31 @@ class PaymentReviewView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            payment.admin_note   = admin_note
-            payment.reviewed_by  = request.user
-            payment.reviewed_at  = timezone.now()
+            payment.admin_note  = admin_note
+            payment.reviewed_by = request.user
+            payment.reviewed_at = timezone.now()
 
             if action == 'approve':
-                payment.status           = 'approved'
-                payment.subscription_days = subscription_days
+                payment.status = 'approved'
                 payment.save()
 
-                now = timezone.now()
-                try:
-                    sub = UserSubscription.objects.select_for_update().get(user=payment.user)
-                    sub.expires_at = (sub.expires_at if sub.expires_at > now else now) + timedelta(days=subscription_days)
-                    sub.save()
-                except UserSubscription.DoesNotExist:
-                    UserSubscription.objects.create(
-                        user=payment.user,
-                        expires_at=now + timedelta(days=subscription_days),
-                    )
+                sub, _ = UserSubscription.objects.get_or_create(user=payment.user)
+                sub.is_active = True
+                sub.save()
 
                 Notification.objects.create(
                     user=payment.user,
                     title="To'lovingiz tasdiqlandi",
-                    message=f"{payment.amount:,} so'mlik to'lovingiz tasdiqlandi. "
-                            f"{subscription_days} kunlik obuna faollashtirildi.",
+                    message=f"{payment.amount:,} so'mlik to'lovingiz tasdiqlandi. Barcha kurslar ochildi.",
                     type='payment_approved',
                 )
                 return Response({
-                    "detail": f"Tasdiqlandi. Foydalanuvchiga {subscription_days} kunlik obuna berildi.",
+                    "detail": "Tasdiqlandi. Foydalanuvchi uchun barcha kurslar ochildi.",
                     "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+                    "subscription": {
+                        "user":      payment.user.username,
+                        "is_active": True,
+                    },
                 })
             else:
                 payment.status = 'rejected'

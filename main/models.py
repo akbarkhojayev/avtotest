@@ -201,18 +201,13 @@ class UserTestAnswer(models.Model):
         verbose_name_plural = "Foydalanuvchi Javoblari"
 
 class UserSubscription(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='subscription')
-    expires_at = models.DateTimeField()
+    user       = models.OneToOneField(User, on_delete=models.CASCADE, related_name='subscription')
+    is_active  = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.user.username} — {self.expires_at.strftime('%d.%m.%Y')}"
-
-    @property
-    def is_active(self):
-        from django.utils import timezone
-        return self.expires_at > timezone.now()
+        return f"{self.user.username} — {'Faol' if self.is_active else 'Nofaol'}"
 
     class Meta:
         verbose_name = "Obuna"
@@ -226,14 +221,13 @@ class PaymentRequest(models.Model):
         ('rejected', 'Rad etildi'),
     ]
 
-    user            = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_requests')
-    amount          = models.PositiveIntegerField(help_text="To'langan summa (so'mda)")
-    receipt         = models.ImageField(upload_to='receipts/', help_text="To'lov cheki rasmi")
-    comment         = models.TextField(blank=True, help_text="Foydalanuvchi izohi (ixtiyoriy)")
-    status          = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
-    admin_note      = models.TextField(blank=True, help_text="Admin izohi")
-    subscription_days = models.PositiveIntegerField(default=30, help_text="Necha kunlik obuna berilsin")
-    reviewed_by     = models.ForeignKey(
+    user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_requests')
+    amount      = models.PositiveIntegerField(help_text="To'langan summa (so'mda)")
+    receipt     = models.ImageField(upload_to='receipts/', help_text="To'lov cheki rasmi")
+    comment     = models.TextField(blank=True, help_text="Foydalanuvchi izohi (ixtiyoriy)")
+    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    admin_note  = models.TextField(blank=True, help_text="Admin izohi")
+    reviewed_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='reviewed_payments', verbose_name="Tekshirgan admin"
     )

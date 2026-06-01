@@ -246,7 +246,8 @@ class BookAdmin(admin.ModelAdmin):
 
 @admin.register(UserSubscription)
 class UserSubscriptionAdmin(admin.ModelAdmin):
-    list_display = ['user', 'expires_at', 'subscription_active', 'created_at']
+    list_display = ['user', 'subscription_active', 'created_at']
+    list_editable = []
     search_fields = ['user__username']
     readonly_fields = ['created_at', 'updated_at']
     list_per_page = 25
@@ -254,13 +255,13 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
     def subscription_active(self, obj):
         if obj.is_active:
             return mark_safe('<span style="color:#28a745;font-weight:bold;">&#10004; Faol</span>')
-        return mark_safe('<span style="color:#dc3545;">&#10008; Tugagan</span>')
+        return mark_safe('<span style="color:#dc3545;">&#10008; Nofaol</span>')
     subscription_active.short_description = "Holati"
 
 
 @admin.register(PaymentRequest)
 class PaymentRequestAdmin(admin.ModelAdmin):
-    list_display = ['user', 'amount', 'status_badge', 'subscription_days', 'reviewed_by', 'created_at']
+    list_display = ['user', 'amount', 'status_badge', 'reviewed_by', 'created_at']
     list_filter = ['status', 'created_at']
     search_fields = ['user__username']
     readonly_fields = ['user', 'amount', 'receipt', 'comment', 'created_at', 'reviewed_at', 'receipt_preview']
@@ -271,7 +272,7 @@ class PaymentRequestAdmin(admin.ModelAdmin):
             'fields': ('user', 'amount', 'comment', 'receipt', 'receipt_preview', 'created_at')
         }),
         ("Admin tekshiruvi", {
-            'fields': ('status', 'admin_note', 'subscription_days', 'reviewed_by', 'reviewed_at')
+            'fields': ('status', 'admin_note', 'reviewed_by', 'reviewed_at')
         }),
     )
 
