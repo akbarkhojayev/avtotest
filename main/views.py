@@ -41,6 +41,7 @@ from .serializers import (
     SubscriptionSerializer,
     PaymentRequestCreateSerializer, PaymentRequestSerializer,
     PaymentRequestAdminSerializer, PaymentReviewSerializer,
+    AdminPaymentAddSerializer,
     PaymentCardSerializer, CommentSerializer, CommentWriteSerializer,
     SiteSettingsSerializer, NotificationSerializer,
 )
@@ -1250,6 +1251,51 @@ class PaymentAdminListView(generics.ListAPIView):
         return qs
 
 
+class AdminPaymentAddView(APIView):
+    """Admin naqt pul yoki boshqa yo'l bilan to'lovni qo'lda kiritadi."""
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(request_body=AdminPaymentAddSerializer)
+    def post(self, request):
+        serializer = AdminPaymentAddSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user_id    = serializer.validated_data['user_id']
+        amount     = serializer.validated_data['amount']
+        admin_note = serializer.validated_data.get('admin_note', '')
+
+        try:
+            user = User.objects.get(pk=user_id, is_staff=False)
+        except User.DoesNotExist:
+            return Response({"detail": "Foydalanuvchi topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+
+        with transaction.atomic():
+            payment = PaymentRequest.objects.create(
+                user=user,
+                amount=amount,
+                status='approved',
+                admin_note=admin_note or "Admin tomonidan qo'lda kiritildi.",
+                reviewed_by=request.user,
+                reviewed_at=timezone.now(),
+            )
+
+            sub, _ = UserSubscription.objects.get_or_create(user=user)
+            sub.is_active = True
+            sub.save()
+
+        Notification.objects.create(
+            user=user,
+            title="To'lovingiz tasdiqlandi",
+            message=f"Admin {amount:,} so'mlik to'lovingizni tasdiqladi. Barcha kurslar ochildi.",
+            type='payment_approved',
+        )
+
+        return Response({
+            "detail": f"{user.username} uchun {amount:,} so'mlik to'lov kiritildi. Kurslar ochildi.",
+            "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+        }, status=status.HTTP_201_CREATED)
+
+
 class PaymentReviewView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -1356,7 +1402,9 @@ class PaymentCardDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class CommentListCreateView(generics.ListCreateAPIView):
     def get_permissions(self):
-        return [IsAuthenticated()]
+        if self.request.method == 'POST':
+            return [IsAuthenticated()]
+        return [AllowAny()]
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
@@ -1364,6 +1412,8 @@ class CommentListCreateView(generics.ListCreateAPIView):
         return CommentSerializer
 
     def get_queryset(self):
+        if self.request.user.is_authenticated and self.request.user.is_staff:
+            return Comment.objects.all()
         return Comment.objects.filter(is_active=True)
 
     def perform_create(self, serializer):

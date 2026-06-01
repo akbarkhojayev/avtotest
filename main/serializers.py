@@ -564,6 +564,12 @@ class PaymentReviewSerializer(serializers.Serializer):
     admin_note = serializers.CharField(required=False, allow_blank=True)
 
 
+class AdminPaymentAddSerializer(serializers.Serializer):
+    user_id    = serializers.IntegerField(help_text="Foydalanuvchi ID si")
+    amount     = serializers.IntegerField(min_value=1, help_text="To'lov summasi (so'mda)")
+    admin_note = serializers.CharField(required=False, allow_blank=True, help_text="Izoh (ixtiyoriy)")
+
+
 # ==================== PAYMENT CARD ====================
 
 class PaymentCardSerializer(serializers.ModelSerializer):
@@ -576,12 +582,12 @@ class PaymentCardSerializer(serializers.ModelSerializer):
 # ==================== COMMENT ====================
 
 class CommentSerializer(serializers.ModelSerializer):
-    username = serializers.CharField(source='user.username', read_only=True)
+    username  = serializers.CharField(source='user.username', read_only=True)
     full_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
-        fields = ['id', 'username', 'full_name', 'text', 'created_at']
+        fields = ['id', 'username', 'full_name', 'text', 'is_active', 'created_at']
 
     def get_full_name(self, obj):
         return obj.user.get_full_name() or obj.user.username
