@@ -575,8 +575,11 @@ class AdminPaymentAddSerializer(serializers.Serializer):
 class PaymentCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentCard
-        fields = ['id', 'name', 'card_number', 'is_active']
-        extra_kwargs = {'is_active': {'default': True, 'required': False}}
+        fields = ['id', 'name', 'card_number', 'course_price', 'is_active']
+        extra_kwargs = {
+            'is_active': {'default': True, 'required': False},
+            'course_price': {'default': 0, 'required': False},
+        }
 
 
 # ==================== COMMENT ====================

@@ -296,8 +296,8 @@ class PaymentRequestAdmin(admin.ModelAdmin):
 
 @admin.register(PaymentCard)
 class PaymentCardAdmin(admin.ModelAdmin):
-    list_display  = ['name', 'card_number', 'is_active']
-    list_editable = ['is_active']
+    list_display  = ['name', 'card_number', 'course_price', 'is_active']
+    list_editable = ['course_price', 'is_active']
     search_fields = ['name', 'card_number']
     list_per_page = 25
 

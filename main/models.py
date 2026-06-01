@@ -244,9 +244,10 @@ class PaymentRequest(models.Model):
 
 
 class PaymentCard(models.Model):
-    name        = models.CharField(max_length=200, help_text="Karta egasining ismi")
-    card_number = models.CharField(max_length=19, help_text="Karta raqami: 8600 0000 0000 0000")
-    is_active   = models.BooleanField(default=True)
+    name         = models.CharField(max_length=200, help_text="Karta egasining ismi")
+    card_number  = models.CharField(max_length=19, help_text="Karta raqami: 8600 0000 0000 0000")
+    course_price = models.PositiveIntegerField(default=0, help_text="Kurs narxi (so'mda)")
+    is_active    = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.name} — {self.card_number}"
