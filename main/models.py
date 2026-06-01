@@ -223,7 +223,7 @@ class PaymentRequest(models.Model):
 
     user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_requests')
     amount      = models.PositiveIntegerField(help_text="To'langan summa (so'mda)")
-    receipt     = models.ImageField(upload_to='receipts/', help_text="To'lov cheki rasmi")
+    receipt     = models.ImageField(upload_to='receipts/', blank=True, null=True, help_text="To'lov cheki rasmi (ixtiyoriy)")
     comment     = models.TextField(blank=True, help_text="Foydalanuvchi izohi (ixtiyoriy)")
     status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     admin_note  = models.TextField(blank=True, help_text="Admin izohi")

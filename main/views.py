@@ -1279,47 +1279,49 @@ class PaymentAdminListView(generics.ListAPIView):
 
 
 class AdminPaymentAddView(APIView):
-    """Admin naqt pul yoki boshqa yo'l bilan to'lovni qo'lda kiritadi."""
+    """Admin naqt pul yoki boshqa yo'l bilan to'lovni qo'lda kiritadi va kurslar ochiladi."""
     permission_classes = [IsAdminUser]
 
-    @swagger_auto_schema(request_body=AdminPaymentAddSerializer)
+    @swagger_auto_schema(
+        operation_description="Admin foydalanuvchi uchun to'lov kiritadi → kurslar avtomatik ochiladi.",
+        request_body=AdminPaymentAddSerializer,
+    )
     def post(self, request):
         serializer = AdminPaymentAddSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         user_id    = serializer.validated_data['user_id']
         amount     = serializer.validated_data['amount']
-        admin_note = serializer.validated_data.get('admin_note', '')
+        admin_note = serializer.validated_data.get('admin_note', '') or "Admin tomonidan qo'lda kiritildi."
 
-        try:
-            user = User.objects.get(pk=user_id, is_staff=False)
-        except User.DoesNotExist:
-            return Response({"detail": "Foydalanuvchi topilmadi."}, status=status.HTTP_404_NOT_FOUND)
+        user = User.objects.get(pk=user_id)
 
         with transaction.atomic():
             payment = PaymentRequest.objects.create(
-                user=user,
-                amount=amount,
-                status='approved',
-                admin_note=admin_note or "Admin tomonidan qo'lda kiritildi.",
-                reviewed_by=request.user,
-                reviewed_at=timezone.now(),
+                user        = user,
+                amount      = amount,
+                status      = 'approved',
+                admin_note  = admin_note,
+                reviewed_by = request.user,
+                reviewed_at = timezone.now(),
             )
-
-            sub, _ = UserSubscription.objects.get_or_create(user=user)
+            sub, created = UserSubscription.objects.get_or_create(user=user)
             sub.is_active = True
             sub.save()
 
         Notification.objects.create(
-            user=user,
-            title="To'lovingiz tasdiqlandi",
-            message=f"Admin {amount:,} so'mlik to'lovingizni tasdiqladi. Barcha kurslar ochildi.",
-            type='payment_approved',
+            user    = user,
+            title   = "To'lovingiz tasdiqlandi",
+            message = f"Admin {amount:,} so'm to'lovingizni tasdiqladi. Barcha kurslar ochildi.",
+            type    = 'payment_approved',
         )
 
         return Response({
-            "detail": f"{user.username} uchun {amount:,} so'mlik to'lov kiritildi. Kurslar ochildi.",
-            "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+            "detail":   f"{user.username} uchun {amount:,} so'mlik to'lov kiritildi. Kurslar ochildi.",
+            "user":     {"id": user.id, "username": user.username,
+                         "full_name": user.get_full_name() or user.username},
+            "payment":  PaymentRequestAdminSerializer(payment, context={'request': request}).data,
+            "subscription": {"is_active": True, "opened_now": created or not sub.is_active},
         }, status=status.HTTP_201_CREATED)
 
 

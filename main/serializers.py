@@ -570,6 +570,11 @@ class AdminPaymentAddSerializer(serializers.Serializer):
     amount     = serializers.IntegerField(min_value=1, help_text="To'lov summasi (so'mda)")
     admin_note = serializers.CharField(required=False, allow_blank=True, help_text="Izoh (ixtiyoriy)")
 
+    def validate_user_id(self, value):
+        if not User.objects.filter(pk=value, is_staff=False, is_active=True).exists():
+            raise serializers.ValidationError("Foydalanuvchi topilmadi.")
+        return value
+
 
 # ==================== PAYMENT CARD ====================
 
