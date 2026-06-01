@@ -5,6 +5,7 @@ from .models import (
     Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
     Book, PaymentRequest, UserSubscription,
     PaymentCard, Comment, SiteSettings, Notification,
+    ChatMessage,
 )
 
 
@@ -620,4 +621,31 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ['id', 'title', 'message', 'type', 'is_read', 'created_at']
+
+
+# ==================== CHAT ====================
+
+class ChatMessageSerializer(serializers.ModelSerializer):
+    username   = serializers.CharField(source='user.username', read_only=True)
+    full_name  = serializers.SerializerMethodField()
+    is_admin   = serializers.SerializerMethodField()
+    video_id   = serializers.IntegerField(source='video.id', read_only=True)
+    video_title = serializers.CharField(source='video.title', read_only=True)
+
+    class Meta:
+        model = ChatMessage
+        fields = ['id', 'video_id', 'video_title', 'username', 'full_name',
+                  'is_admin', 'text', 'is_active', 'created_at']
+
+    def get_full_name(self, obj):
+        return obj.user.get_full_name() or obj.user.username
+
+    def get_is_admin(self, obj):
+        return obj.user.is_staff
+
+
+class ChatMessageWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ChatMessage
+        fields = ['text']
 

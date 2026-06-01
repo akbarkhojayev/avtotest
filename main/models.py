@@ -243,6 +243,22 @@ class PaymentRequest(models.Model):
         ordering = ['-created_at']
 
 
+class ChatMessage(models.Model):
+    video     = models.ForeignKey(Video, on_delete=models.CASCADE, related_name='chat_messages')
+    user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name='chat_messages')
+    text      = models.TextField()
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user.username} → {self.video.title}: {self.text[:40]}"
+
+    class Meta:
+        verbose_name = "Chat xabari"
+        verbose_name_plural = "Chat xabarlari"
+        ordering = ['created_at']
+
+
 class PaymentCard(models.Model):
     name         = models.CharField(max_length=200, help_text="Karta egasining ismi")
     card_number  = models.CharField(max_length=19, help_text="Karta raqami: 8600 0000 0000 0000")

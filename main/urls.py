@@ -20,6 +20,8 @@ from .views import (
     CommentListCreateView, CommentDetailView,
     SiteSettingsView,
     NotificationListView, NotificationReadView, NotificationReadAllView,
+    VideoChatView, VideoChatMessageView,
+    AdminChatListView, AdminChatReplyView,
 )
 
 urlpatterns = [
@@ -40,6 +42,12 @@ urlpatterns = [
     path('api/videos/', VideoListCreateView.as_view(), name='video-list-create'),
     path('api/videos/<int:pk>/', VideoRetrieveUpdateDestroyView.as_view(), name='video-detail'),
     path('api/videos/<int:pk>/progress/', UpdateProgressView.as_view(), name='update-progress'),
+
+    # Chat
+    path('api/videos/<int:pk>/chat/', VideoChatView.as_view(), name='video-chat'),
+    path('api/videos/<int:pk>/chat/<int:msg_pk>/', VideoChatMessageView.as_view(), name='video-chat-message'),
+    path('api/chat/admin/', AdminChatListView.as_view(), name='admin-chat-list'),
+    path('api/chat/admin/<int:pk>/reply/', AdminChatReplyView.as_view(), name='admin-chat-reply'),
 
     # Video testlari
     path('api/videos/<int:pk>/tests/', VideoTestQuestionListView.as_view(), name='video-test-questions'),

@@ -6,7 +6,7 @@ from .models import (
     RoadSign, Category, TestQuestion, TestAnswer,
     TestResult, UserTestAnswer, Book,
     UserSubscription, PaymentRequest,
-    PaymentCard, Comment, SiteSettings,
+    PaymentCard, Comment, SiteSettings, ChatMessage,
 )
 
 
@@ -290,6 +290,25 @@ class PaymentRequestAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="max-height:200px; border-radius:4px;" />', obj.receipt.url)
         return "—"
     receipt_preview.short_description = "Chek rasmi"
+
+
+# ==================== CHAT ====================
+
+@admin.register(ChatMessage)
+class ChatMessageAdmin(admin.ModelAdmin):
+    list_display  = ['user', 'video', 'short_text', 'is_active', 'created_at']
+    list_filter   = ['is_active', 'video', 'created_at']
+    list_editable = ['is_active']
+    search_fields = ['user__username', 'text', 'video__title']
+    readonly_fields = ['user', 'video', 'created_at']
+    list_per_page = 30
+
+    def short_text(self, obj):
+        return obj.text[:70] + '…' if len(obj.text) > 70 else obj.text
+    short_text.short_description = "Xabar"
+
+    def has_add_permission(self, request):
+        return False
 
 
 # ==================== TO'LOV KARTASI ====================

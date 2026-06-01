@@ -24,6 +24,7 @@ from .models import (
     Category, TestQuestion, TestAnswer, TestResult, UserTestAnswer,
     Book, PaymentRequest, UserSubscription,
     PaymentCard, Comment, SiteSettings, Notification,
+    ChatMessage,
 )
 from .serializers import (
     LoginSerializer, RegisterSerializer, UserSerializer, UserUpdateSerializer,
@@ -44,6 +45,7 @@ from .serializers import (
     AdminPaymentAddSerializer,
     PaymentCardSerializer, CommentSerializer, CommentWriteSerializer,
     SiteSettingsSerializer, NotificationSerializer,
+    ChatMessageSerializer, ChatMessageWriteSerializer,
 )
 
 
@@ -1097,49 +1099,72 @@ class DashboardView(APIView):
         tests_month      = TestResult.objects.filter(completed_at__gte=month_start)
         tests_passed     = tests_month.filter(passed=True).count()
 
-        # Har bir admin qo'shgan userlar statistikasi
-        admin_stats = (
-            UserSession.objects
-            .filter(created_by__isnull=False)
-            .values('created_by__id', 'created_by__username', 'created_by__first_name', 'created_by__last_name')
-            .annotate(total=models.Count('id'))
-            .order_by('-total')
-        )
+        # Umumiy to'lovlar (hamma vaqt)
+        all_approved = PaymentRequest.objects.filter(status='approved')
+        total_amount_ever    = all_approved.aggregate(t=models.Sum('amount'))['t'] or 0
+        total_payments_ever  = all_approved.count()
 
-        # Tolov qilgan userlar seti (approved bo'lgan)
-        paid_user_ids = set(
-            PaymentRequest.objects.filter(status='approved')
-            .values_list('user_id', flat=True)
-        )
+        # Har bir user qilgan to'lovlar summasi {user_id: sum}
+        user_payment_sums = {
+            row['user_id']: row['total']
+            for row in all_approved.values('user_id').annotate(total=models.Sum('amount'))
+        }
 
-        # Har admin tasdiqlagan to'lovlar summasi
+        # Har admin tasdiqlagan to'lovlar summasi {admin_id: sum}
         admin_approved_amounts = {
             row['reviewed_by_id']: row['total_amount']
-            for row in PaymentRequest.objects
-                .filter(status='approved', reviewed_by__isnull=False)
+            for row in all_approved.filter(reviewed_by__isnull=False)
                 .values('reviewed_by_id')
                 .annotate(total_amount=models.Sum('amount'))
         }
 
+        # Har bir admin qo'shgan userlar
+        admin_stats = (
+            UserSession.objects
+            .filter(created_by__isnull=False)
+            .values('created_by__id', 'created_by__username',
+                    'created_by__first_name', 'created_by__last_name')
+            .annotate(total=models.Count('id'))
+            .order_by('-total')
+        )
+
         admins_activity = []
         for row in admin_stats:
             admin_id = row['created_by__id']
-            user_ids = list(
+
+            users_data = (
                 UserSession.objects
                 .filter(created_by_id=admin_id)
-                .values_list('user_id', flat=True)
+                .select_related('user')
+                .values('user_id', 'user__username', 'user__first_name', 'user__last_name')
             )
-            paid   = sum(1 for uid in user_ids if uid in paid_user_ids)
-            unpaid = len(user_ids) - paid
+
+            users_list = []
+            paid_count = 0
+            for u in users_data:
+                uid = u['user_id']
+                amount = user_payment_sums.get(uid, 0)
+                if amount:
+                    paid_count += 1
+                users_list.append({
+                    "user_id":   uid,
+                    "username":  u['user__username'],
+                    "full_name": f"{u['user__first_name']} {u['user__last_name']}".strip()
+                                 or u['user__username'],
+                    "paid_amount": amount,
+                    "has_paid":  bool(amount),
+                })
+
             admins_activity.append({
-                "admin_id":             admin_id,
-                "username":             row['created_by__username'],
-                "full_name":            f"{row['created_by__first_name']} {row['created_by__last_name']}".strip()
-                                        or row['created_by__username'],
-                "users_added":          row['total'],
-                "paid":                 paid,
-                "not_paid":             unpaid,
+                "admin_id":              admin_id,
+                "username":              row['created_by__username'],
+                "full_name":             f"{row['created_by__first_name']} {row['created_by__last_name']}".strip()
+                                         or row['created_by__username'],
+                "users_added":           row['total'],
+                "users_paid":            paid_count,
+                "users_not_paid":        row['total'] - paid_count,
                 "total_amount_approved": admin_approved_amounts.get(admin_id, 0),
+                "users":                 users_list,
             })
 
         return Response({
@@ -1153,6 +1178,8 @@ class DashboardView(APIView):
                 "this_month_approved": payments_approved,
                 "this_month_pending":  payments_pending,
                 "this_month_amount":   payments_amount,
+                "all_time_total":      total_payments_ever,
+                "all_time_amount":     total_amount_ever,
             },
             "content": {
                 "videos":      total_videos,
@@ -1504,3 +1531,104 @@ class NotificationReadAllView(APIView):
     def post(self, request):
         Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
         return Response({"detail": "Barchasi o'qildi."})
+
+
+# ==================== CHAT ====================
+
+class VideoChatView(APIView):
+    """Video chatini olish va xabar yuborish."""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter('after', openapi.IN_QUERY, type=openapi.TYPE_INTEGER,
+                              description='Shu ID dan keyingi xabarlar (polling)'),
+        ],
+        responses={200: ChatMessageSerializer(many=True)},
+    )
+    def get(self, request, pk):
+        video = get_object_or_404(Video, pk=pk, is_active=True)
+        qs = ChatMessage.objects.filter(video=video).select_related('user', 'video')
+        if not request.user.is_staff:
+            qs = qs.filter(is_active=True)
+        after = request.query_params.get('after')
+        if after:
+            qs = qs.filter(id__gt=after)
+        return Response(ChatMessageSerializer(qs, many=True).data)
+
+    @swagger_auto_schema(request_body=ChatMessageWriteSerializer)
+    def post(self, request, pk):
+        video = get_object_or_404(Video, pk=pk, is_active=True)
+        serializer = ChatMessageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        msg = serializer.save(video=video, user=request.user)
+        return Response(ChatMessageSerializer(msg).data, status=status.HTTP_201_CREATED)
+
+
+class AdminChatListView(APIView):
+    """Admin: barcha videolardan xabarlar, video va user bo'yicha filter."""
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter('video', openapi.IN_QUERY, type=openapi.TYPE_INTEGER,
+                              description='Video ID bo\'yicha filter'),
+            openapi.Parameter('user', openapi.IN_QUERY, type=openapi.TYPE_INTEGER,
+                              description='User ID bo\'yicha filter'),
+            openapi.Parameter('after', openapi.IN_QUERY, type=openapi.TYPE_INTEGER,
+                              description='Polling: shu ID dan keyingi xabarlar'),
+        ],
+        responses={200: ChatMessageSerializer(many=True)},
+    )
+    def get(self, request):
+        qs = ChatMessage.objects.select_related('user', 'video').order_by('-created_at')
+
+        video_id = request.query_params.get('video')
+        user_id  = request.query_params.get('user')
+        after    = request.query_params.get('after')
+
+        if video_id:
+            qs = qs.filter(video_id=video_id)
+        if user_id:
+            qs = qs.filter(user_id=user_id)
+        if after:
+            qs = qs.filter(id__gt=after)
+
+        return Response(ChatMessageSerializer(qs[:100], many=True).data)
+
+
+class AdminChatReplyView(APIView):
+    """Admin: biror videoga user nomidan emas, admin sifatida javob yuboradi."""
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(request_body=ChatMessageWriteSerializer)
+    def post(self, request, pk):
+        video = get_object_or_404(Video, pk=pk, is_active=True)
+        serializer = ChatMessageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        msg = serializer.save(video=video, user=request.user)
+        return Response(ChatMessageSerializer(msg).data, status=status.HTTP_201_CREATED)
+
+
+class VideoChatMessageView(APIView):
+    """Admin xabarni yashiradi yoki o'chiradi."""
+    permission_classes = [IsAdminUser]
+
+    @swagger_auto_schema(
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN)},
+        )
+    )
+    def patch(self, request, pk, msg_pk):
+        msg = get_object_or_404(ChatMessage, pk=msg_pk, video_id=pk)
+        is_active = request.data.get('is_active')
+        if is_active is not None:
+            msg.is_active = is_active
+            msg.save()
+        return Response(ChatMessageSerializer(msg).data)
+
+    def delete(self, request, pk, msg_pk):
+        msg = get_object_or_404(ChatMessage, pk=msg_pk, video_id=pk)
+        msg.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
