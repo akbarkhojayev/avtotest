@@ -528,6 +528,7 @@ class PaymentRequestCreateSerializer(serializers.ModelSerializer):
         fields = ['id', 'amount', 'receipt', 'comment']
         extra_kwargs = {
             'comment': {'required': False},
+            'receipt': {'required': False},
         }
 
 
