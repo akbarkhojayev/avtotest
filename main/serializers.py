@@ -326,7 +326,7 @@ class CategoryWriteSerializer(serializers.ModelSerializer):
 class TestAnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAnswer
-        fields = ['id', 'answer_text', 'order']
+        fields = ['id', 'answer_text', 'is_correct', 'order']
         ref_name = 'TestAnswerRead'
 
 
@@ -434,27 +434,13 @@ class TestQuestionWithAnswersWriteSerializer(serializers.ModelSerializer):
 
 
 class UserTestAnswerSerializer(serializers.ModelSerializer):
-    question_id          = serializers.IntegerField(source='question.id', read_only=True)
     question_text        = serializers.CharField(source='question.question_text', read_only=True)
-    question_photo       = serializers.ImageField(source='question.photo', read_only=True, allow_null=True)
-    selected_answer_id   = serializers.IntegerField(source='selected_answer.id', read_only=True, allow_null=True)
     selected_answer_text = serializers.CharField(source='selected_answer.answer_text', read_only=True, allow_null=True)
-    correct_answer_id    = serializers.SerializerMethodField()
     correct_answer_text  = serializers.SerializerMethodField()
 
     class Meta:
         model = UserTestAnswer
-        fields = [
-            'id',
-            'question_id', 'question_text', 'question_photo',
-            'selected_answer_id', 'selected_answer_text',
-            'correct_answer_id', 'correct_answer_text',
-            'is_correct',
-        ]
-
-    def get_correct_answer_id(self, obj):
-        correct = obj.question.answers.filter(is_correct=True).first()
-        return correct.id if correct else None
+        fields = ['id', 'question_text', 'selected_answer_text', 'correct_answer_text', 'is_correct']
 
     def get_correct_answer_text(self, obj):
         correct = obj.question.answers.filter(is_correct=True).first()
