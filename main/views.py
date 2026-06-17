@@ -12,6 +12,7 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 from rest_framework_simplejwt.tokens import RefreshToken
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -88,6 +89,12 @@ _QUESTION_FORM_PARAMS = [
         description='JSON: [{"answer_text":"A","is_correct":false,"order":1}, {"answer_text":"B","is_correct":true,"order":2}]',
     ),
 ]
+
+
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
 
 def _extract_multipart_data(request, json_fields=()):
@@ -743,6 +750,7 @@ class CategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
 
 class TestQuestionListView(generics.ListCreateAPIView):
     parser_classes = [MultiPartParser, FormParser]
+    pagination_class = StandardResultsSetPagination
 
     def get_permissions(self):
         if self.request.method == 'POST':
