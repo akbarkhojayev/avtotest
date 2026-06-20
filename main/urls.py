@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import (
-    LoginView, LogoutView, RegisterView, ProfileView,
+    LoginView, LogoutView, ProfileView,
     AdminUserListCreateView, AdminUserDetailView,
     VideoListCreateView, VideoRetrieveUpdateDestroyView,
     UpdateProgressView,
@@ -22,6 +22,8 @@ from .views import (
     NotificationListView, NotificationReadView, NotificationReadAllView,
     VideoChatView, VideoChatMessageView,
     AdminChatListView, AdminChatReplyView,
+    SendOTPView, VerifyOTPView,
+    RegisterSendOTPView, RegisterCompleteView,
 )
 
 urlpatterns = [
@@ -29,7 +31,10 @@ urlpatterns = [
     path('api/dashboard/', DashboardView.as_view(), name='dashboard'),
 
     # Auth
-    path('api/register/', RegisterView.as_view(), name='register'),
+    path('api/auth/send-otp/', SendOTPView.as_view(), name='send-otp'),
+    path('api/auth/verify-otp/', VerifyOTPView.as_view(), name='verify-otp'),
+    path('api/register/send-otp/', RegisterSendOTPView.as_view(), name='register-send-otp'),
+    path('api/register/complete/', RegisterCompleteView.as_view(), name='register-complete'),
     path('api/login/', LoginView.as_view(), name='login'),
     path('api/logout/', LogoutView.as_view(), name='logout'),
     path('api/profile/', ProfileView.as_view(), name='profile'),

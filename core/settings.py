@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-u3+&30bvgk!heaipuj!13cxhgky$2dmvy8*+2j3u$b$&c-ol^n'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
@@ -179,6 +179,16 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ==================== EMAIL CONFIGURATION ====================
+# For production, use environment variables for sensitive data!
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'autostarts01@gmail.com'
+EMAIL_HOST_PASSWORD = 'qfvqrquhphtwdeke'
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 # ==================== BUNNYCDN ====================
 

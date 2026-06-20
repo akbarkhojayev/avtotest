@@ -28,7 +28,7 @@ from .models import (
     ChatMessage,
 )
 from .serializers import (
-    LoginSerializer, RegisterSerializer, UserSerializer, UserUpdateSerializer,
+    LoginSerializer, UserSerializer, UserUpdateSerializer,
     AdminUserSerializer, AdminUserCreateSerializer, AdminUserUpdateSerializer,
     VideoSerializer, VideoWriteSerializer,
     RoadSignSerializer, RoadSignWriteSerializer,
@@ -47,7 +47,13 @@ from .serializers import (
     PaymentCardSerializer, CommentSerializer, CommentWriteSerializer,
     SiteSettingsSerializer, NotificationSerializer,
     ChatMessageSerializer, ChatMessageWriteSerializer,
+    OTPSendSerializer, OTPVerifySerializer,
+    RegisterSendOTPSerializer, RegisterCompleteSerializer,
 )
+from .models import OTP
+from django.core.mail import send_mail
+from django.conf import settings
+import random
 
 
 
@@ -125,6 +131,252 @@ def get_client_ip(request):
     return request.META.get('REMOTE_ADDR')
 
 
+class SendOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=OTPSendSerializer)
+    def post(self, request):
+        serializer = OTPSendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        
+        # Check if user with this email already exists
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {"detail": "Bu email bilan foydalanuvchi allaqachon mavjud."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Generate random 6-digit code
+        code = str(random.randint(100000, 999999))
+
+        # Delete old OTP if exists and create new one
+        OTP.objects.filter(email=email).delete()
+        OTP.objects.create(email=email, code=code)
+
+        # Send email with HTML design
+        try:
+            subject = 'OTP Tasdiqlash Kodi'
+            from_email = settings.DEFAULT_FROM_EMAIL
+            to_email = [email]
+            
+            # Plain text version for non-HTML clients
+            plain_message = f'Sizning tasdiqlash kodingiz: {code}\nBu kod 10 daqiqa ichida amal qiladi.'
+            
+            # HTML version with nice design
+            html_message = f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>OTP Tasdiqlash</title>
+            </head>
+            <body style="margin:0;padding:0;font-family: Arial, sans-serif;background-color:#f4f4f4;">
+                <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1);margin-top:20px;">
+                    <div style="text-align:center;padding:10px 0;">
+                        <h1 style="color:#007bff;margin:0;">OTP Tasdiqlash</h1>
+                    </div>
+                    <div style="padding:20px;text-align:center;">
+                        <p style="font-size:16px;color:#333;margin-bottom:30px;">Ro'yxatdan o'tish uchun quyidagi tasdiqlash kodini kiriting:</p>
+                        <div style="display:inline-block;background-color:#007bff;color:#ffffff;font-size:32px;font-weight:bold;padding:15px 30px;border-radius:8px;letter-spacing:4px;">
+                            {code}
+                        </div>
+                        <p style="font-size:14px;color:#666;margin-top:30px;">Bu kod <b>10 daqiqa</b> ichida amal qiladi.</p>
+                    </div>
+                    <div style="text-align:center;padding:10px 0;border-top:1px solid #eee;margin-top:20px;">
+                        <p style="font-size:12px;color:#999;">Bu email avtomatik ravishda yuborildi, iltimos javob bermang.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            '''
+            
+            from django.core.mail import EmailMultiAlternatives
+            msg = EmailMultiAlternatives(subject, plain_message, from_email, to_email)
+            msg.attach_alternative(html_message, "text/html")
+            msg.send(fail_silently=False)
+            
+            return Response(
+                {"message": "OTP emailingizga yuborildi."},
+                status=status.HTTP_200_OK
+            )
+        except Exception as e:
+            return Response(
+                {"detail": f"Email yuborishda xatolik: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class VerifyOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=OTPVerifySerializer)
+    def post(self, request):
+        serializer = OTPVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        code = serializer.validated_data['code']
+
+        try:
+            otp = OTP.objects.get(email=email, code=code)
+        except OTP.DoesNotExist:
+            return Response(
+                {"detail": "Noto'g'ri OTP kodi."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if otp.is_expired():
+            return Response(
+                {"detail": "OTP kodi vaqt tugagan."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        otp.is_verified = True
+        otp.save()
+
+        return Response(
+            {"message": "OTP muvaffaqiyatli tasdiqlandi."},
+            status=status.HTTP_200_OK
+        )
+
+
+class RegisterSendOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=RegisterSendOTPSerializer)
+    def post(self, request):
+        serializer = RegisterSendOTPSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data['email']
+        
+        # Check if user with this email already exists
+        if User.objects.filter(email=email).exists():
+            return Response(
+                {"detail": "Bu email bilan foydalanuvchi allaqachon mavjud."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if username already exists
+        username = serializer.validated_data['username']
+        if User.objects.filter(username=username).exists():
+            return Response(
+                {"detail": "Bu username allaqachon mavjud."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Generate random 6-digit code
+        code = str(random.randint(100000, 999999))
+
+        # Prepare user data to store in OTP
+        user_data = {
+            "username": username,
+            "password": serializer.validated_data['password'],
+            "first_name": serializer.validated_data.get('first_name', ''),
+            "last_name": serializer.validated_data.get('last_name', ''),
+            "email": email
+        }
+
+        # Delete old OTP if exists and create new one
+        OTP.objects.filter(email=email).delete()
+        OTP.objects.create(email=email, code=code, user_data=user_data)
+
+        # Send email with HTML design
+        try:
+            subject = 'OTP Tasdiqlash Kodi'
+            from_email = settings.DEFAULT_FROM_EMAIL
+            to_email = [email]
+            
+            # Plain text version for non-HTML clients
+            plain_message = f'Sizning tasdiqlash kodingiz: {code}\nBu kod 10 daqiqa ichida amal qiladi.'
+            
+            # HTML version with nice design
+            html_message = f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>OTP Tasdiqlash</title>
+            </head>
+            <body style="margin:0;padding:0;font-family: Arial, sans-serif;background-color:#f4f4f4;">
+                <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1);margin-top:20px;">
+                    <div style="text-align:center;padding:10px 0;">
+                        <h1 style="color:#007bff;margin:0;">OTP Tasdiqlash</h1>
+                    </div>
+                    <div style="padding:20px;text-align:center;">
+                        <p style="font-size:16px;color:#333;margin-bottom:30px;">Ro'yxatdan o'tish uchun quyidagi tasdiqlash kodini kiriting:</p>
+                        <div style="display:inline-block;background-color:#007bff;color:#ffffff;font-size:32px;font-weight:bold;padding:15px 30px;border-radius:8px;letter-spacing:4px;">
+                            {code}
+                        </div>
+                        <p style="font-size:14px;color:#666;margin-top:30px;">Bu kod <b>10 daqiqa</b> ichida amal qiladi.</p>
+                    </div>
+                    <div style="text-align:center;padding:10px 0;border-top:1px solid #eee;margin-top:20px;">
+                        <p style="font-size:12px;color:#999;">Bu email avtomatik ravishda yuborildi, iltimos javob bermang.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            '''
+            
+            from django.core.mail import EmailMultiAlternatives
+            msg = EmailMultiAlternatives(subject, plain_message, from_email, to_email)
+            msg.attach_alternative(html_message, "text/html")
+            msg.send(fail_silently=False)
+            
+            return Response({
+                "message": "OTP emailingizga yuborildi. Iltimos koddan foydalanib ro'yxatdan o'ting."
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"detail": f"Email yuborishda xatolik: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RegisterCompleteView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=RegisterCompleteSerializer)
+    def post(self, request):
+        serializer = RegisterCompleteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        email = serializer.validated_data['email']
+        otp_code = serializer.validated_data['otp_code']
+        
+        # Verify OTP
+        try:
+            otp = OTP.objects.get(email=email, code=otp_code)
+        except OTP.DoesNotExist:
+            return Response(
+                {"detail": "Noto'g'ri OTP kodi."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if otp.is_expired():
+            return Response(
+                {"detail": "OTP kodi vaqt tugagan."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get user data from OTP
+        user_data = otp.user_data
+        
+        # Create user
+        password = user_data.pop('password')
+        user = User.objects.create_user(password=password, **user_data)
+        UserSession.objects.get_or_create(user=user, defaults={'role': 'user'})
+        
+        # Delete OTP after successful registration
+        otp.delete()
+        
+        return Response({
+            "message": "Muvaffaqiyatli ro'yxatdan o'tdingiz.",
+            "user": UserSerializer(user).data,
+        }, status=status.HTTP_201_CREATED)
+
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
 
@@ -175,20 +427,6 @@ class LoginView(APIView):
             "refresh": str(refresh),
             "user": UserSerializer(user).data
         })
-
-
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
-
-    @swagger_auto_schema(request_body=RegisterSerializer)
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        return Response({
-            "message": "Muvaffaqiyatli ro'yxatdan o'tdingiz.",
-            "user": UserSerializer(user).data,
-        }, status=status.HTTP_201_CREATED)
 
 
 class LogoutView(APIView):

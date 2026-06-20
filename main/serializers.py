@@ -15,8 +15,17 @@ class LoginSerializer(serializers.Serializer):
     device_id = serializers.CharField(help_text="Qurilma identifikatori (browser fingerprint)")
 
 
-class RegisterSerializer(serializers.ModelSerializer):
-    password  = serializers.CharField(write_only=True, min_length=6)
+class OTPSendSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+
+
+class OTPVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    code = serializers.CharField(max_length=6, required=True)
+
+
+class RegisterSendOTPSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6)
     password2 = serializers.CharField(write_only=True, label="Parolni tasdiqlang")
 
     class Meta:
@@ -24,8 +33,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ['username', 'password', 'password2', 'first_name', 'last_name', 'email']
         extra_kwargs = {
             'first_name': {'required': False},
-            'last_name':  {'required': False},
-            'email':      {'required': False},
+            'last_name': {'required': False},
+            'email': {'required': True},
         }
 
     def validate(self, data):
@@ -33,12 +42,10 @@ class RegisterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"password2": "Parollar mos kelmaydi."})
         return data
 
-    def create(self, validated_data):
-        validated_data.pop('password2')
-        password = validated_data.pop('password')
-        user = User.objects.create_user(password=password, **validated_data)
-        UserSession.objects.get_or_create(user=user, defaults={'role': 'user'})
-        return user
+
+class RegisterCompleteSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=True)
+    otp_code = serializers.CharField(write_only=True, max_length=6, required=True)
 
 
 

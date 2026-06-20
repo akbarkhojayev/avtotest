@@ -6,7 +6,7 @@ from .models import (
     RoadSign, Category, TestQuestion, TestAnswer,
     TestResult, UserTestAnswer, Book,
     UserSubscription, PaymentRequest,
-    PaymentCard, Comment, SiteSettings, ChatMessage,
+    PaymentCard, Comment, SiteSettings, ChatMessage, OTP,
 )
 
 
@@ -358,3 +358,20 @@ class SiteSettingsAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+# ==================== OTP ====================
+
+@admin.register(OTP)
+class OTPAdmin(admin.ModelAdmin):
+    list_display = ['email', 'code', 'is_verified', 'is_expired_status', 'created_at', 'expires_at']
+    list_filter = ['is_verified', 'created_at']
+    search_fields = ['email', 'code']
+    readonly_fields = ['created_at', 'expires_at']
+    list_per_page = 25
+
+    def is_expired_status(self, obj):
+        if obj.is_expired():
+            return mark_safe('<span style="color:#dc3545;font-weight:bold;">Tugagan</span>')
+        return mark_safe('<span style="color:#28a745;font-weight:bold;">Faol</span>')
+    is_expired_status.short_description = "Holati"

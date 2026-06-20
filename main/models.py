@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
+from datetime import timedelta
 from .storage import BunnyStorage
 
 class UserSession(models.Model):
@@ -28,6 +30,30 @@ class UserSession(models.Model):
     class Meta:
         verbose_name = "Foydalanuvchi Sessiyasi"
         verbose_name_plural = "Foydalanuvchi Sessiyalari"
+
+
+class OTP(models.Model):
+    email = models.EmailField(unique=True)
+    code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    is_verified = models.BooleanField(default=False)
+    user_data = models.JSONField(default=dict, help_text="Temporary user registration data")
+
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            self.expires_at = timezone.now() + timedelta(minutes=10)
+        super().save(*args, **kwargs)
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def __str__(self):
+        return f"{self.email} - {self.code}"
+
+    class Meta:
+        verbose_name = "OTP"
+        verbose_name_plural = "OTPlar"
 
 
 class Video(models.Model):
