@@ -333,7 +333,7 @@ class CategoryWriteSerializer(serializers.ModelSerializer):
 class TestAnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = TestAnswer
-        fields = ['id', 'answer_text', 'is_correct', 'order']
+        fields = ['id', 'answer_text', 'order']
         ref_name = 'TestAnswerRead'
 
 
@@ -659,4 +659,3 @@ class ChatMessageWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
         fields = ['text']
-

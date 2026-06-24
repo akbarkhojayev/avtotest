@@ -131,6 +131,23 @@ def get_client_ip(request):
     return request.META.get('REMOTE_ADDR')
 
 
+def send_otp_email(email, code):
+    subject = "AutoStart tasdiqlash kodi"
+    from_email = settings.DEFAULT_FROM_EMAIL
+    message = (
+        f"AutoStart tasdiqlash kodingiz: {code}\n\n"
+        "Kod 10 daqiqa ichida amal qiladi.\n"
+        "Agar bu so'rovni siz yubormagan bo'lsangiz, ushbu xabarni e'tiborsiz qoldiring."
+    )
+    send_mail(
+        subject,
+        message,
+        from_email,
+        [email],
+        fail_silently=False,
+    )
+
+
 class SendOTPView(APIView):
     permission_classes = [AllowAny]
 
@@ -154,49 +171,8 @@ class SendOTPView(APIView):
         OTP.objects.filter(email=email).delete()
         OTP.objects.create(email=email, code=code)
 
-        # Send email with HTML design
         try:
-            subject = 'OTP Tasdiqlash Kodi'
-            from_email = settings.DEFAULT_FROM_EMAIL
-            to_email = [email]
-            
-            # Plain text version for non-HTML clients
-            plain_message = f'Sizning tasdiqlash kodingiz: {code}\nBu kod 10 daqiqa ichida amal qiladi.'
-            
-            # HTML version with nice design
-            html_message = f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>OTP Tasdiqlash</title>
-            </head>
-            <body style="margin:0;padding:0;font-family: Arial, sans-serif;background-color:#f4f4f4;">
-                <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1);margin-top:20px;">
-                    <div style="text-align:center;padding:10px 0;">
-                        <h1 style="color:#007bff;margin:0;">OTP Tasdiqlash</h1>
-                    </div>
-                    <div style="padding:20px;text-align:center;">
-                        <p style="font-size:16px;color:#333;margin-bottom:30px;">Ro'yxatdan o'tish uchun quyidagi tasdiqlash kodini kiriting:</p>
-                        <div style="display:inline-block;background-color:#007bff;color:#ffffff;font-size:32px;font-weight:bold;padding:15px 30px;border-radius:8px;letter-spacing:4px;">
-                            {code}
-                        </div>
-                        <p style="font-size:14px;color:#666;margin-top:30px;">Bu kod <b>10 daqiqa</b> ichida amal qiladi.</p>
-                    </div>
-                    <div style="text-align:center;padding:10px 0;border-top:1px solid #eee;margin-top:20px;">
-                        <p style="font-size:12px;color:#999;">Bu email avtomatik ravishda yuborildi, iltimos javob bermang.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            '''
-            
-            from django.core.mail import EmailMultiAlternatives
-            msg = EmailMultiAlternatives(subject, plain_message, from_email, to_email)
-            msg.attach_alternative(html_message, "text/html")
-            msg.send(fail_silently=False)
-            
+            send_otp_email(email, code)
             return Response(
                 {"message": "OTP emailingizga yuborildi."},
                 status=status.HTTP_200_OK
@@ -281,49 +257,8 @@ class RegisterSendOTPView(APIView):
         OTP.objects.filter(email=email).delete()
         OTP.objects.create(email=email, code=code, user_data=user_data)
 
-        # Send email with HTML design
         try:
-            subject = 'OTP Tasdiqlash Kodi'
-            from_email = settings.DEFAULT_FROM_EMAIL
-            to_email = [email]
-            
-            # Plain text version for non-HTML clients
-            plain_message = f'Sizning tasdiqlash kodingiz: {code}\nBu kod 10 daqiqa ichida amal qiladi.'
-            
-            # HTML version with nice design
-            html_message = f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>OTP Tasdiqlash</title>
-            </head>
-            <body style="margin:0;padding:0;font-family: Arial, sans-serif;background-color:#f4f4f4;">
-                <div style="max-width:600px;margin:0 auto;background-color:#ffffff;padding:20px;border-radius:8px;box-shadow:0 0 10px rgba(0,0,0,0.1);margin-top:20px;">
-                    <div style="text-align:center;padding:10px 0;">
-                        <h1 style="color:#007bff;margin:0;">OTP Tasdiqlash</h1>
-                    </div>
-                    <div style="padding:20px;text-align:center;">
-                        <p style="font-size:16px;color:#333;margin-bottom:30px;">Ro'yxatdan o'tish uchun quyidagi tasdiqlash kodini kiriting:</p>
-                        <div style="display:inline-block;background-color:#007bff;color:#ffffff;font-size:32px;font-weight:bold;padding:15px 30px;border-radius:8px;letter-spacing:4px;">
-                            {code}
-                        </div>
-                        <p style="font-size:14px;color:#666;margin-top:30px;">Bu kod <b>10 daqiqa</b> ichida amal qiladi.</p>
-                    </div>
-                    <div style="text-align:center;padding:10px 0;border-top:1px solid #eee;margin-top:20px;">
-                        <p style="font-size:12px;color:#999;">Bu email avtomatik ravishda yuborildi, iltimos javob bermang.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            '''
-            
-            from django.core.mail import EmailMultiAlternatives
-            msg = EmailMultiAlternatives(subject, plain_message, from_email, to_email)
-            msg.attach_alternative(html_message, "text/html")
-            msg.send(fail_silently=False)
-            
+            send_otp_email(email, code)
             return Response({
                 "message": "OTP emailingizga yuborildi. Iltimos koddan foydalanib ro'yxatdan o'ting."
             }, status=status.HTTP_200_OK)
@@ -515,15 +450,111 @@ class ProfileView(APIView):
 
     def get(self, request):
         user = request.user
-        completed = VideoProgress.objects.filter(user=user, is_completed=True).count()
-        total = Video.objects.filter(is_active=True).count()
-        return Response({
-            "user": UserSerializer(user).data,
-            "stats": {
-                "completed_videos": completed,
-                "total_videos": total,
-                "progress_percent": round((completed / total * 100) if total > 0 else 0, 1)
+
+        total_videos = Video.objects.filter(is_active=True).count()
+        progress_qs = (
+            VideoProgress.objects
+            .filter(user=user, video__is_active=True)
+            .select_related('video')
+            .order_by('-last_watched')
+        )
+        watched_progress_qs = progress_qs.filter(watched_seconds__gt=0)
+        completed_progress_qs = progress_qs.filter(is_completed=True)
+
+        watched_videos_count = watched_progress_qs.count()
+        completed_videos_count = completed_progress_qs.count()
+        total_watched_seconds = progress_qs.aggregate(
+            total=models.Sum('watched_seconds')
+        )['total'] or 0
+
+        test_results_qs = (
+            TestResult.objects
+            .filter(user=user)
+            .select_related('lesson_video')
+            .order_by('-completed_at')
+        )
+        total_tests = test_results_qs.count()
+        passed_tests = test_results_qs.filter(passed=True).count()
+        avg_score = test_results_qs.aggregate(
+            avg=models.Avg('score_percent')
+        )['avg'] or 0
+
+        payments_qs = PaymentRequest.objects.filter(user=user).order_by('-created_at')
+        approved_payments_qs = payments_qs.filter(status='approved')
+        pending_payments_count = payments_qs.filter(status='pending').count()
+
+        try:
+            subscription = user.subscription
+            subscription_data = SubscriptionSerializer(subscription).data
+            has_access = subscription.is_active
+        except UserSubscription.DoesNotExist:
+            subscription_data = None
+            has_access = False
+
+        has_book_access = bool(user.is_staff or has_access or approved_payments_qs.exists())
+        active_books_qs = Book.objects.filter(is_active=True).order_by('order', 'created_at')
+        accessible_books_qs = active_books_qs if has_book_access else Book.objects.none()
+
+        def video_progress_payload(progress):
+            video = progress.video
+            return {
+                'video': {
+                    'id': video.id,
+                    'title': video.title,
+                    'title_ru': video.title_ru,
+                    'duration': video.duration,
+                    'order': video.order,
+                    'is_paid': video.is_paid,
+                    'thumbnail': request.build_absolute_uri(video.thumbnail.url) if video.thumbnail else None,
+                },
+                'watched_seconds': progress.watched_seconds,
+                'is_completed': progress.is_completed,
+                'last_watched': progress.last_watched,
             }
+
+        recent_payments = PaymentRequestSerializer(
+            payments_qs[:10], many=True, context={'request': request}
+        ).data
+        recent_tests = TestResultListSerializer(test_results_qs[:10], many=True).data
+        accessible_books = BookSerializer(
+            accessible_books_qs, many=True, context={'request': request}
+        ).data
+
+        return Response({
+            'user': UserSerializer(user).data,
+            'subscription': {
+                'is_active': has_access,
+                'has_access': has_book_access,
+                'data': subscription_data,
+            },
+            'stats': {
+                'total_videos': total_videos,
+                'watched_videos': watched_videos_count,
+                'completed_videos': completed_videos_count,
+                'video_progress_percent': round(
+                    (completed_videos_count / total_videos * 100) if total_videos > 0 else 0, 1
+                ),
+                'total_watched_seconds': total_watched_seconds,
+                'total_watched_minutes': round(total_watched_seconds / 60, 1),
+                'total_tests': total_tests,
+                'passed_tests': passed_tests,
+                'test_pass_rate': round((passed_tests / total_tests * 100) if total_tests > 0 else 0, 1),
+                'average_score': round(avg_score, 1),
+                'total_books': active_books_qs.count(),
+                'accessible_books': accessible_books_qs.count(),
+                'approved_payments': approved_payments_qs.count(),
+                'pending_payments': pending_payments_count,
+            },
+            'video_progress': [video_progress_payload(progress) for progress in progress_qs],
+            'watched_videos': [video_progress_payload(progress) for progress in watched_progress_qs],
+            'completed_videos': [video_progress_payload(progress) for progress in completed_progress_qs],
+            'test_results': recent_tests,
+            'payments': recent_payments,
+            'books': {
+                'has_access': has_book_access,
+                'purchased_books': accessible_books,
+                'accessible_books': accessible_books,
+            },
         })
 
     @swagger_auto_schema(request_body=UserUpdateSerializer)

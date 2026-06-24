@@ -10,25 +10,45 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
-from pathlib import Path
 from datetime import timedelta
+import os
+from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def env_bool(name, default=False):
+    return os.environ.get(name, str(default)).lower() in ("1", "true", "yes", "on")
+
+
+def env_list(name, default=()):
+    value = os.environ.get(name)
+    if not value:
+        return list(default)
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-u3+&30bvgk!heaipuj!13cxhgky$2dmvy8*+2j3u$b$&c-ol^n'
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+if not SECRET_KEY:
+    raise RuntimeError("DJANGO_SECRET_KEY environment variable is required.")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool("DJANGO_DEBUG", False)
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", [
+    "sec-api.autostarts.uz",
+    "13.140.139.123",
+    "autostarts.uz",
+])
 
-
+CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS", [
+    "https://sec-api.autostarts.uz",
+    "https://autostarts.uz",
+    "https://www.autostarts.uz",
+])
 # Application definition
 
 INSTALLED_APPS = [
@@ -77,17 +97,28 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", True)
+SESSION_COOKIE_SECURE = env_bool("DJANGO_SESSION_COOKIE_SECURE", True)
+CSRF_COOKIE_SECURE = env_bool("DJANGO_CSRF_COOKIE_SECURE", True)
+SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "31536000"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", True)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", True)
+SECURE_CONTENT_TYPE_NOSNIFF = True
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DB', 'autostarts'),
+        'USER': os.environ.get('POSTGRES_USER', 'autouser'),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+        'HOST': os.environ.get('POSTGRES_HOST', 'db'),
+        'PORT': int(os.environ.get('POSTGRES_PORT', '5432')),
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -125,7 +156,12 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = env_bool("CORS_ALLOW_ALL_ORIGINS", False)
+CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS", [
+    "https://autostarts.uz",
+    "https://www.autostarts.uz",
+    "https://sec-api.autostarts.uz",
+])
 
 CORS_ALLOW_HEADERS = [
     'accept',
@@ -168,8 +204,8 @@ SWAGGER_SETTINGS = {
 }
 
 # Fayl yuklash limitlari (500 MB)
-DATA_UPLOAD_MAX_MEMORY_SIZE = 524288000
-FILE_UPLOAD_MAX_MEMORY_SIZE = 524288000
+DATA_UPLOAD_MAX_MEMORY_SIZE = 1073741824
+FILE_UPLOAD_MAX_MEMORY_SIZE = 10485760
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -180,23 +216,23 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-# ==================== EMAIL CONFIGURATION ====================
 # For production, use environment variables for sensitive data!
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'autostarts01@gmail.com'
-EMAIL_HOST_PASSWORD = 'qfvqrquhphtwdeke'
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', f"AutoStart Team <{EMAIL_HOST_USER}>")
+
 
 # ==================== BUNNYCDN ====================
 
-BUNNY_STORAGE_ZONE = 'avtomaktab'
-BUNNY_ACCESS_KEY   = '0bf8b1cc-798c-49de-8b7f16dba98d-d48a-47c3'
-BUNNY_CDN_URL      = 'https://avtomaktab.b-cdn.net'
-BUNNY_TOKEN_KEY    = '243241be-2d57-40ba-934c-925e061841d7'
-BUNNY_URL_EXPIRY   = 4 * 60 * 60  # 4 soat (sekundda)
+BUNNY_STORAGE_ZONE = os.environ.get('BUNNY_STORAGE_ZONE', 'avtomaktab')
+BUNNY_ACCESS_KEY   = os.environ.get('BUNNY_ACCESS_KEY', '')
+BUNNY_CDN_URL      = os.environ.get('BUNNY_CDN_URL', 'https://avtomaktab.b-cdn.net')
+BUNNY_TOKEN_KEY    = os.environ.get('BUNNY_TOKEN_KEY', '')
+BUNNY_URL_EXPIRY   = int(os.environ.get('BUNNY_URL_EXPIRY', 4 * 60 * 60))  # 4 soat (sekundda)
 
 # ==================== JAZZMIN ====================
 
@@ -292,4 +328,3 @@ JAZZMIN_UI_TWEAKS = {
         "success": "btn-success",
     },
 }
-

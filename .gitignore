@@ -7,3 +7,7 @@ staticfiles/
 .env
 .idea/
 .vscode/
+db.json
+clean.json
+*.dump
+*.backup
