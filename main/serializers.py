@@ -497,12 +497,37 @@ class SubmitTestSerializer(serializers.Serializer):
 
 
 class BookSerializer(serializers.ModelSerializer):
+    file = serializers.SerializerMethodField()
+    is_purchased = serializers.SerializerMethodField()
+
     class Meta:
         model = Book
         fields = [
             'id', 'title', 'title_ru', 'description', 'description_ru',
             'price', 'image', 'file', 'year', 'pages', 'order', 'created_at',
+            'is_purchased',
         ]
+
+    def _has_book_access(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_staff:
+            return True
+        return PaymentRequest.objects.filter(
+            user=user, book=obj, status='approved'
+        ).exists()
+
+    def get_file(self, obj):
+        if not obj.file or not self._has_book_access(obj):
+            return None
+        request = self.context.get('request')
+        url = obj.file.url
+        return request.build_absolute_uri(url) if request else url
+
+    def get_is_purchased(self, obj):
+        return self._has_book_access(obj)
 
 
 class BookWriteSerializer(serializers.ModelSerializer):
@@ -531,22 +556,37 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
 
 class PaymentRequestCreateSerializer(serializers.ModelSerializer):
+    book_id = serializers.PrimaryKeyRelatedField(
+        source='book', queryset=Book.objects.filter(is_active=True),
+        required=False, allow_null=True, write_only=True
+    )
+
     class Meta:
         model = PaymentRequest
-        fields = ['id', 'amount', 'receipt', 'comment']
+        fields = ['id', 'amount', 'receipt', 'comment', 'book_id']
         extra_kwargs = {
             'comment': {'required': False},
             'receipt': {'required': False},
         }
 
+    def validate(self, attrs):
+        book = attrs.get('book')
+        amount = attrs.get('amount')
+        if book and amount is not None and amount < book.price:
+            raise serializers.ValidationError({
+                'amount': f"To'lov summasi kitob narxidan kam bo'lmasligi kerak: {book.price} so'm."
+            })
+        return attrs
+
 
 class PaymentRequestSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    book = BookSerializer(read_only=True)
 
     class Meta:
         model = PaymentRequest
         fields = [
-            'id', 'amount', 'receipt', 'comment',
+            'id', 'amount', 'receipt', 'comment', 'book',
             'status', 'status_display', 'admin_note', 'created_at',
         ]
 
@@ -556,11 +596,12 @@ class PaymentRequestAdminSerializer(serializers.ModelSerializer):
     username        = serializers.CharField(source='user.username', read_only=True)
     full_name       = serializers.SerializerMethodField()
     reviewed_by_name = serializers.CharField(source='reviewed_by.username', read_only=True, allow_null=True)
+    book = BookSerializer(read_only=True)
 
     class Meta:
         model = PaymentRequest
         fields = [
-            'id', 'username', 'full_name', 'amount', 'receipt', 'comment',
+            'id', 'username', 'full_name', 'amount', 'receipt', 'comment', 'book',
             'status', 'status_display', 'admin_note',
             'reviewed_by_name', 'reviewed_at', 'created_at',
         ]
@@ -577,12 +618,29 @@ class PaymentReviewSerializer(serializers.Serializer):
 class AdminPaymentAddSerializer(serializers.Serializer):
     user_id    = serializers.IntegerField(help_text="Foydalanuvchi ID si")
     amount     = serializers.IntegerField(min_value=1, help_text="To'lov summasi (so'mda)")
+    book_id    = serializers.IntegerField(required=False, allow_null=True, help_text="Kitob ID si (kitob sotib olish uchun)")
     admin_note = serializers.CharField(required=False, allow_blank=True, help_text="Izoh (ixtiyoriy)")
 
     def validate_user_id(self, value):
         if not User.objects.filter(pk=value, is_staff=False, is_active=True).exists():
             raise serializers.ValidationError("Foydalanuvchi topilmadi.")
         return value
+
+    def validate_book_id(self, value):
+        if value is not None and not Book.objects.filter(pk=value, is_active=True).exists():
+            raise serializers.ValidationError("Kitob topilmadi.")
+        return value
+
+    def validate(self, attrs):
+        book_id = attrs.get('book_id')
+        amount = attrs.get('amount')
+        if book_id:
+            book = Book.objects.get(pk=book_id)
+            if amount < book.price:
+                raise serializers.ValidationError({
+                    'amount': f"To'lov summasi kitob narxidan kam bo'lmasligi kerak: {book.price} so'm."
+                })
+        return attrs
 
 
 # ==================== PAYMENT CARD ====================

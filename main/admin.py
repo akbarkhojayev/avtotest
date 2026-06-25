@@ -261,15 +261,15 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(PaymentRequest)
 class PaymentRequestAdmin(admin.ModelAdmin):
-    list_display = ['user', 'amount', 'status_badge', 'reviewed_by', 'created_at']
-    list_filter = ['status', 'created_at']
-    search_fields = ['user__username']
-    readonly_fields = ['user', 'amount', 'receipt', 'comment', 'created_at', 'reviewed_at', 'receipt_preview']
+    list_display = ['user', 'book', 'amount', 'status_badge', 'reviewed_by', 'created_at']
+    list_filter = ['status', 'book', 'created_at']
+    search_fields = ['user__username', 'book__title']
+    readonly_fields = ['user', 'book', 'amount', 'receipt', 'comment', 'created_at', 'reviewed_at', 'receipt_preview']
     ordering = ['-created_at']
     list_per_page = 25
     fieldsets = (
         ("Foydalanuvchi", {
-            'fields': ('user', 'amount', 'comment', 'receipt', 'receipt_preview', 'created_at')
+            'fields': ('user', 'book', 'amount', 'comment', 'receipt', 'receipt_preview', 'created_at')
         }),
         ("Admin tekshiruvi", {
             'fields': ('status', 'admin_note', 'reviewed_by', 'reviewed_at')

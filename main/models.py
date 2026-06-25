@@ -248,6 +248,10 @@ class PaymentRequest(models.Model):
     ]
 
     user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_requests')
+    book        = models.ForeignKey(
+        'Book', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='payment_requests', help_text="Kitob uchun to'lov bo'lsa tanlanadi"
+    )
     amount      = models.PositiveIntegerField(help_text="To'langan summa (so'mda)")
     receipt     = models.ImageField(upload_to='receipts/', blank=True, null=True, help_text="To'lov cheki rasmi (ixtiyoriy)")
     comment     = models.TextField(blank=True, help_text="Foydalanuvchi izohi (ixtiyoriy)")
