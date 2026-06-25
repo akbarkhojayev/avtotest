@@ -228,13 +228,12 @@ class VideoSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if not self._has_access(obj, request):
             return None
+        if obj.video_file:
+            return obj.video_file.url
         return obj.video_url
 
     def get_stream_url(self, obj):
-        request = self.context.get('request')
-        if not obj.video_file or not self._has_access(obj, request):
-            return None
-        return obj.video_file.url
+        return self.get_video_url(obj)
 
     def get_user_progress(self, obj):
         request = self.context.get('request')
