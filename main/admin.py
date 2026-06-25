@@ -1,4 +1,7 @@
 from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.models import User
+from django.db import models
 from django.utils.html import format_html, mark_safe
 
 from .models import (
@@ -8,6 +11,152 @@ from .models import (
     UserSubscription, PaymentRequest,
     PaymentCard, Comment, SiteSettings, ChatMessage, OTP,
 )
+
+
+# ==================== FOYDALANUVCHILAR ====================
+
+class UserSessionInline(admin.StackedInline):
+    model = UserSession
+    fk_name = 'user'
+    can_delete = False
+    extra = 0
+    fields = ['role', 'created_by', 'device_id', 'last_login_ip', 'created_at', 'updated_at']
+    readonly_fields = ['device_id', 'last_login_ip', 'created_at', 'updated_at']
+    verbose_name = "Sessiya va rol"
+    verbose_name_plural = "Sessiya va rol"
+
+
+class UserSubscriptionInline(admin.StackedInline):
+    model = UserSubscription
+    can_delete = False
+    extra = 0
+    fields = ['is_active', 'created_at', 'updated_at']
+    readonly_fields = ['created_at', 'updated_at']
+    verbose_name = "Obuna"
+    verbose_name_plural = "Obuna"
+
+
+try:
+    admin.site.unregister(User)
+except admin.sites.NotRegistered:
+    pass
+
+
+@admin.register(User)
+class CustomUserAdmin(DjangoUserAdmin):
+    list_display = [
+        'username', 'full_name', 'email', 'role_badge', 'subscription_badge',
+        'approved_payment_amount', 'purchased_books_count', 'video_progress_count',
+        'is_active', 'is_staff', 'date_joined',
+    ]
+    list_filter = ['is_active', 'is_staff', 'is_superuser', 'date_joined', 'session_device__role', 'subscription__is_active']
+    search_fields = ['username', 'first_name', 'last_name', 'email', 'session_device__created_by__username']
+    list_select_related = ['session_device', 'subscription']
+    inlines = [UserSessionInline, UserSubscriptionInline]
+    readonly_fields = DjangoUserAdmin.readonly_fields + (
+        'role_badge', 'created_by_admin', 'last_login_ip', 'device_id',
+        'subscription_badge', 'approved_payment_amount', 'pending_payments_count',
+        'purchased_books_list', 'video_progress_summary', 'test_summary',
+    )
+    fieldsets = DjangoUserAdmin.fieldsets + (
+        ("Loyha ma'lumotlari", {
+            'fields': (
+                'role_badge', 'created_by_admin', 'last_login_ip', 'device_id',
+                'subscription_badge', 'approved_payment_amount', 'pending_payments_count',
+                'purchased_books_list', 'video_progress_summary', 'test_summary',
+            )
+        }),
+    )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('session_device', 'subscription')
+
+    def full_name(self, obj):
+        return obj.get_full_name() or '—'
+    full_name.short_description = "F.I.Sh"
+
+    def role_badge(self, obj):
+        try:
+            role = obj.session_device.role
+        except Exception:
+            role = 'user'
+        color = '#28a745' if role == 'admin' else '#007bff'
+        label = 'Admin' if role == 'admin' else 'Foydalanuvchi'
+        return format_html('<span style="color:{};font-weight:bold;">{}</span>', color, label)
+    role_badge.short_description = "Rol"
+
+    def created_by_admin(self, obj):
+        try:
+            admin_user = obj.session_device.created_by
+        except Exception:
+            admin_user = None
+        return admin_user.get_full_name() or admin_user.username if admin_user else '—'
+    created_by_admin.short_description = "Qo'shgan admin"
+
+    def last_login_ip(self, obj):
+        try:
+            return obj.session_device.last_login_ip or '—'
+        except Exception:
+            return '—'
+    last_login_ip.short_description = "Oxirgi IP"
+
+    def device_id(self, obj):
+        try:
+            return obj.session_device.device_id or '—'
+        except Exception:
+            return '—'
+    device_id.short_description = "Device ID"
+
+    def subscription_badge(self, obj):
+        try:
+            active = obj.subscription.is_active
+        except Exception:
+            active = False
+        if active:
+            return mark_safe('<span style="color:#28a745;font-weight:bold;">&#10004; Faol</span>')
+        return mark_safe('<span style="color:#dc3545;">&#10008; Nofaol</span>')
+    subscription_badge.short_description = "Obuna"
+
+    def approved_payment_amount(self, obj):
+        total = PaymentRequest.objects.filter(user=obj, status='approved').aggregate(total=models.Sum('amount'))['total'] or 0
+        return f"{total:,} so'm"
+    approved_payment_amount.short_description = "Tasdiqlangan to'lov"
+
+    def pending_payments_count(self, obj):
+        return PaymentRequest.objects.filter(user=obj, status='pending').count()
+    pending_payments_count.short_description = "Kutilayotgan to'lovlar"
+
+    def purchased_books_count(self, obj):
+        return PaymentRequest.objects.filter(user=obj, status='approved', book__isnull=False).values('book_id').distinct().count()
+    purchased_books_count.short_description = "Kitoblar"
+
+    def purchased_books_list(self, obj):
+        books = Book.objects.filter(payment_requests__user=obj, payment_requests__status='approved').distinct()
+        if not books.exists():
+            return '—'
+        return format_html('<br>'.join([f"{book.title} ({book.price:,} so'm)" for book in books]))
+    purchased_books_list.short_description = "Sotib olingan kitoblar"
+
+    def video_progress_count(self, obj):
+        return VideoProgress.objects.filter(user=obj, watched_seconds__gt=0).count()
+    video_progress_count.short_description = "Ko'rgan videolar"
+
+    def video_progress_summary(self, obj):
+        qs = VideoProgress.objects.filter(user=obj).select_related('video').order_by('-last_watched')[:10]
+        if not qs:
+            return '—'
+        rows = [
+            f"{p.video.title}: {p.watched_seconds}s" + (" (tugagan)" if p.is_completed else "")
+            for p in qs
+        ]
+        return format_html('<br>'.join(rows))
+    video_progress_summary.short_description = "Video progress"
+
+    def test_summary(self, obj):
+        total = TestResult.objects.filter(user=obj).count()
+        passed = TestResult.objects.filter(user=obj, passed=True).count()
+        return f"{passed}/{total} test o'tgan"
+    test_summary.short_description = "Test natijalari"
 
 
 # ==================== USER SESSION ====================
