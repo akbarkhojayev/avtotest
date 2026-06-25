@@ -191,6 +191,7 @@ class VideoProgressSerializer(serializers.ModelSerializer):
 
 class VideoSerializer(serializers.ModelSerializer):
     user_progress = serializers.SerializerMethodField()
+    video_file = serializers.SerializerMethodField()
     video_url = serializers.SerializerMethodField()
     stream_url = serializers.SerializerMethodField()
     has_test = serializers.SerializerMethodField()
@@ -201,7 +202,7 @@ class VideoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'title', 'description', 'thumbnail',
             'duration', 'order', 'is_paid',
-            'video_url', 'stream_url', 'user_progress',
+            'video_file', 'video_url', 'stream_url', 'user_progress',
             'has_test', 'test_passed',
         ]
 
@@ -219,6 +220,9 @@ class VideoSerializer(serializers.ModelSerializer):
             except Exception:
                 request._sub_active = False
         return request._sub_active
+
+    def get_video_file(self, obj):
+        return self.get_stream_url(obj)
 
     def get_video_url(self, obj):
         request = self.context.get('request')

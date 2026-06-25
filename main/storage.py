@@ -39,17 +39,24 @@ class BunnyStorage(Storage):
         self.cdn_url = settings.BUNNY_CDN_URL.rstrip('/')
         self.base_api = f"https://storage.bunnycdn.com/{self.storage_zone}/"
 
-    def _headers(self):
+    def _headers(self, content_type='application/octet-stream'):
         return {
             'AccessKey': self.access_key,
-            'Content-Type': 'application/octet-stream',
+            'Content-Type': content_type or 'application/octet-stream',
         }
 
     def _save(self, name, content):
         name = name.replace('\\', '/')
         url = self.base_api + name
+        content_type = getattr(content, 'content_type', 'application/octet-stream')
         content.seek(0)
-        response = requests.put(url, data=content.read(), headers=self._headers())
+        upload_body = getattr(content, 'file', content)
+        response = requests.put(
+            url,
+            data=upload_body,
+            headers=self._headers(content_type),
+            timeout=(10, 300),
+        )
         response.raise_for_status()
         return name
 
