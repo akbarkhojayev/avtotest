@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.contrib.auth.models import User
 from django.db import models
+from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import format_html, mark_safe
 
 from .models import (
@@ -11,6 +13,35 @@ from .models import (
     UserSubscription, PaymentRequest,
     PaymentCard, Comment, SiteSettings, ChatMessage, OTP,
 )
+
+
+def admin_object_link(obj, label=None):
+    if not obj:
+        return "-"
+    url = reverse(f"admin:{obj._meta.app_label}_{obj._meta.model_name}_change", args=[obj.pk])
+    return format_html('<a href="{}">{}</a>', url, label or str(obj))
+
+
+def external_link(url, label="Ochish"):
+    if not url:
+        return "-"
+    return format_html('<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>', url, label)
+
+
+def money(value):
+    return f"{value or 0:,} so'm"
+
+
+def bool_badge(active, true_label="Faol", false_label="Nofaol"):
+    if active:
+        return format_html('<span style="color:#28a745;font-weight:bold;">&#10004; {}</span>', true_label)
+    return format_html('<span style="color:#dc3545;font-weight:bold;">&#10008; {}</span>', false_label)
+
+
+def payment_type_badge_value(payment_type):
+    if payment_type == 'book':
+        return mark_safe('<span style="color:#6f42c1;font-weight:bold;">Kitob</span>')
+    return mark_safe('<span style="color:#007bff;font-weight:bold;">Kurs/obuna</span>')
 
 
 # ==================== FOYDALANUVCHILAR ====================
@@ -187,11 +218,15 @@ class VideoTestQuestionInline(admin.StackedInline):
 
 @admin.register(Video)
 class VideoAdmin(admin.ModelAdmin):
-    list_display = ['title', 'duration', 'order', 'is_paid', 'is_active', 'thumbnail_preview', 'created_at']
+    list_display = [
+        'id', 'title', 'duration', 'order', 'access_badge', 'source_badge',
+        'api_video_link', 'bunny_file_link', 'progress_count', 'test_count',
+        'is_active', 'thumbnail_preview', 'created_at',
+    ]
     list_filter = ['is_active', 'is_paid']
-    search_fields = ['title', 'title_ru', 'description']
-    list_editable = ['order', 'is_paid', 'is_active']
-    readonly_fields = ['created_at', 'thumbnail_preview']
+    search_fields = ['title', 'title_ru', 'description', 'video_url']
+    list_editable = ['order', 'is_active']
+    readonly_fields = ['created_at', 'thumbnail_preview', 'api_video_link', 'bunny_file_link', 'thumbnail_link', 'progress_count', 'test_count']
     ordering = ['order', 'created_at']
     inlines = [VideoTestQuestionInline]
     list_per_page = 20
@@ -200,10 +235,13 @@ class VideoAdmin(admin.ModelAdmin):
             'fields': ('title', 'title_ru', 'description', 'description_ru')
         }),
         ("Media", {
-            'fields': ('video_file', 'video_url', 'thumbnail', 'thumbnail_preview', 'duration')
+            'fields': (
+                'video_file', 'bunny_file_link', 'video_url', 'api_video_link',
+                'thumbnail', 'thumbnail_preview', 'thumbnail_link', 'duration',
+            )
         }),
         ("Sozlamalar", {
-            'fields': ('order', 'is_paid', 'is_active', 'created_at')
+            'fields': ('order', 'is_paid', 'is_active', 'progress_count', 'test_count', 'created_at')
         }),
     )
 
@@ -217,13 +255,55 @@ class VideoAdmin(admin.ModelAdmin):
     thumbnail_preview.short_description = "Ko'rinish"
 
 
+    def access_badge(self, obj):
+        return bool_badge(obj.is_paid, "Pullik", "Bepul")
+    access_badge.short_description = "Kirish"
+
+    def source_badge(self, obj):
+        if obj.video_file:
+            return mark_safe('<span style="color:#28a745;font-weight:bold;">Bunny/file</span>')
+        if obj.video_url:
+            return mark_safe('<span style="color:#007bff;font-weight:bold;">URL</span>')
+        return mark_safe('<span style="color:#dc3545;font-weight:bold;">Video yoq</span>')
+    source_badge.short_description = "Manba"
+
+    def api_video_link(self, obj):
+        url = obj.video_url or (obj.video_file.url if obj.video_file else None)
+        return external_link(url, "Video link")
+    api_video_link.short_description = "API video_url"
+
+    def bunny_file_link(self, obj):
+        return external_link(obj.video_file.url if obj.video_file else None, "Bunny/file")
+    bunny_file_link.short_description = "Yuklangan file"
+
+    def thumbnail_link(self, obj):
+        return external_link(obj.thumbnail.url if obj.thumbnail else None, "Thumbnail")
+    thumbnail_link.short_description = "Thumbnail link"
+
+    def progress_count(self, obj):
+        return obj.progress.count()
+    progress_count.short_description = "Progress"
+
+    def test_count(self, obj):
+        return obj.test_questions.count()
+    test_count.short_description = "Testlar"
+
+
 @admin.register(VideoProgress)
 class VideoProgressAdmin(admin.ModelAdmin):
-    list_display = ['user', 'video', 'watched_seconds', 'is_completed', 'last_watched']
-    list_filter = ['is_completed']
+    list_display = ['user', 'video_link', 'watched_seconds', 'progress_badge', 'is_completed', 'last_watched']
+    list_filter = ['is_completed', 'last_watched']
     search_fields = ['user__username', 'video__title']
-    readonly_fields = ['last_watched']
+    readonly_fields = ['user', 'video', 'watched_seconds', 'is_completed', 'last_watched']
     list_per_page = 25
+
+    def video_link(self, obj):
+        return admin_object_link(obj.video)
+    video_link.short_description = "Video"
+
+    def progress_badge(self, obj):
+        return bool_badge(obj.is_completed, "Tugagan", "Jarayonda")
+    progress_badge.short_description = "Holat"
 
     def has_add_permission(self, request):
         return False
@@ -237,7 +317,7 @@ class RoadSignAdmin(admin.ModelAdmin):
     list_filter = ['category', 'is_active']
     search_fields = ['name', 'code', 'description']
     list_editable = ['order', 'is_active']
-    readonly_fields = ['created_at', 'sign_image_preview']
+    readonly_fields = ['created_at', 'sign_image_preview', 'image_link']
     ordering = ['category', 'order', 'code']
     list_per_page = 20
     fieldsets = (
@@ -245,7 +325,7 @@ class RoadSignAdmin(admin.ModelAdmin):
             'fields': ('category', 'name', 'code', 'description')
         }),
         ("Media", {
-            'fields': ('image', 'sign_image_preview')
+            'fields': ('image', 'sign_image_preview', 'image_link')
         }),
         ("Sozlamalar", {
             'fields': ('order', 'is_active', 'created_at')
@@ -257,6 +337,10 @@ class RoadSignAdmin(admin.ModelAdmin):
             return format_html('<img src="{}" style="height:60px;" />', obj.image.url)
         return "—"
     sign_image_preview.short_description = "Rasm"
+
+    def image_link(self, obj):
+        return external_link(obj.image.url if obj.image else None, "Rasm link")
+    image_link.short_description = "Rasm URL"
 
 
 # ==================== KATEGORIYA ====================
@@ -362,11 +446,11 @@ class TestResultAdmin(admin.ModelAdmin):
 
 @admin.register(Book)
 class BookAdmin(admin.ModelAdmin):
-    list_display = ['title', 'year', 'price', 'pages', 'order', 'is_active', 'book_cover_preview', 'created_at']
+    list_display = ['id', 'title', 'year', 'price_display', 'pages', 'buyer_count', 'approved_revenue', 'order', 'is_active', 'book_file_link', 'book_cover_preview', 'created_at']
     list_filter = ['is_active', 'year']
     search_fields = ['title', 'title_ru', 'description']
-    list_editable = ['order', 'is_active', 'price']
-    readonly_fields = ['created_at', 'book_cover_preview']
+    list_editable = ['order', 'is_active']
+    readonly_fields = ['created_at', 'book_cover_preview', 'book_file_link', 'cover_link', 'buyer_count', 'approved_revenue']
     ordering = ['order', 'created_at']
     list_per_page = 20
     fieldsets = (
@@ -374,10 +458,10 @@ class BookAdmin(admin.ModelAdmin):
             'fields': ('title', 'title_ru', 'description', 'description_ru')
         }),
         ("Media", {
-            'fields': ('image', 'book_cover_preview', 'file')
+            'fields': ('image', 'book_cover_preview', 'cover_link', 'file', 'book_file_link')
         }),
         ("Kitob ma'lumotlari", {
-            'fields': ('price', 'year', 'pages')
+            'fields': ('price', 'year', 'pages', 'buyer_count', 'approved_revenue')
         }),
         ("Sozlamalar", {
             'fields': ('order', 'is_active', 'created_at')
@@ -391,39 +475,102 @@ class BookAdmin(admin.ModelAdmin):
     book_cover_preview.short_description = "Muqova"
 
 
+    def price_display(self, obj):
+        return money(obj.price)
+    price_display.short_description = "Narx"
+
+    def book_file_link(self, obj):
+        return external_link(obj.file.url if obj.file else None, "PDF/file")
+    book_file_link.short_description = "Kitob fayli"
+
+    def cover_link(self, obj):
+        return external_link(obj.image.url if obj.image else None, "Muqova link")
+    cover_link.short_description = "Muqova URL"
+
+    def buyer_count(self, obj):
+        return obj.payment_requests.filter(status='approved', payment_type='book').values('user_id').distinct().count()
+    buyer_count.short_description = "Sotib olganlar"
+
+    def approved_revenue(self, obj):
+        total = obj.payment_requests.filter(status='approved', payment_type='book').aggregate(total=models.Sum('amount'))['total'] or 0
+        return money(total)
+    approved_revenue.short_description = "Kitob tushumi"
+
+
 # ==================== OBUNA ====================
 
 @admin.register(UserSubscription)
 class UserSubscriptionAdmin(admin.ModelAdmin):
-    list_display = ['user', 'subscription_active', 'created_at']
+    list_display = ['user_link', 'subscription_active', 'approved_subscription_amount', 'created_at', 'updated_at']
     list_editable = []
-    search_fields = ['user__username']
-    readonly_fields = ['created_at', 'updated_at']
+    search_fields = ['user__username', 'user__email', 'user__first_name', 'user__last_name']
+    readonly_fields = ['created_at', 'updated_at', 'approved_subscription_amount']
     list_per_page = 25
 
+    def user_link(self, obj):
+        return admin_object_link(obj.user)
+    user_link.short_description = "Foydalanuvchi"
+
     def subscription_active(self, obj):
-        if obj.is_active:
-            return mark_safe('<span style="color:#28a745;font-weight:bold;">&#10004; Faol</span>')
-        return mark_safe('<span style="color:#dc3545;">&#10008; Nofaol</span>')
+        return bool_badge(obj.is_active, "Faol", "Nofaol")
     subscription_active.short_description = "Holati"
+
+    def approved_subscription_amount(self, obj):
+        total = PaymentRequest.objects.filter(
+            user=obj.user, payment_type='subscription', status='approved'
+        ).aggregate(total=models.Sum('amount'))['total'] or 0
+        return money(total)
+    approved_subscription_amount.short_description = "Obuna to'lovlari"
 
 
 @admin.register(PaymentRequest)
 class PaymentRequestAdmin(admin.ModelAdmin):
-    list_display = ['user', 'payment_type', 'book', 'amount', 'status_badge', 'reviewed_by', 'created_at']
-    list_filter = ['status', 'payment_type', 'book', 'created_at']
-    search_fields = ['user__username', 'book__title']
-    readonly_fields = ['user', 'payment_type', 'book', 'amount', 'receipt', 'comment', 'created_at', 'reviewed_at', 'receipt_preview']
+    list_display = [
+        'id', 'user_link', 'payment_type_badge', 'payment_target', 'amount_display',
+        'status_badge', 'receipt_link', 'reviewed_by', 'created_at',
+    ]
+    list_filter = ['status', 'payment_type', 'book', 'created_at', 'reviewed_at']
+    search_fields = ['user__username', 'user__email', 'user__first_name', 'user__last_name', 'book__title', 'comment', 'admin_note']
+    readonly_fields = [
+        'user', 'payment_type', 'book', 'amount', 'amount_display', 'receipt',
+        'receipt_preview', 'receipt_link', 'comment', 'created_at', 'reviewed_at',
+        'reviewed_by', 'payment_target',
+    ]
     ordering = ['-created_at']
     list_per_page = 25
+    actions = ['approve_selected_payments', 'reject_selected_payments']
     fieldsets = (
-        ("Foydalanuvchi", {
-            'fields': ('user', 'payment_type', 'book', 'amount', 'comment', 'receipt', 'receipt_preview', 'created_at')
+        ("To'lov ma'lumotlari", {
+            'fields': (
+                'user', 'payment_type', 'payment_target', 'book', 'amount', 'amount_display',
+                'comment', 'receipt', 'receipt_preview', 'receipt_link', 'created_at',
+            )
         }),
         ("Admin tekshiruvi", {
             'fields': ('status', 'admin_note', 'reviewed_by', 'reviewed_at')
         }),
     )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'book', 'reviewed_by')
+
+    def user_link(self, obj):
+        return admin_object_link(obj.user)
+    user_link.short_description = "Foydalanuvchi"
+
+    def payment_type_badge(self, obj):
+        return payment_type_badge_value(obj.payment_type)
+    payment_type_badge.short_description = "To'lov turi"
+
+    def payment_target(self, obj):
+        if obj.payment_type == 'book':
+            return admin_object_link(obj.book, obj.book.title if obj.book else "Kitob o'chirilgan")
+        return "Kurs/obuna"
+    payment_target.short_description = "Nima uchun"
+
+    def amount_display(self, obj):
+        return money(obj.amount)
+    amount_display.short_description = "Summa"
 
     def status_badge(self, obj):
         colors = {'pending': '#f39c12', 'approved': '#28a745', 'rejected': '#dc3545'}
@@ -436,9 +583,50 @@ class PaymentRequestAdmin(admin.ModelAdmin):
 
     def receipt_preview(self, obj):
         if obj.receipt:
-            return format_html('<img src="{}" style="max-height:200px; border-radius:4px;" />', obj.receipt.url)
-        return "—"
+            return format_html('<img src="{}" style="max-height:220px; border-radius:4px;" />', obj.receipt.url)
+        return "-"
     receipt_preview.short_description = "Chek rasmi"
+
+    def receipt_link(self, obj):
+        return external_link(obj.receipt.url if obj.receipt else None, "Chek")
+    receipt_link.short_description = "Chek link"
+
+    def _apply_approval_effect(self, payment):
+        if payment.payment_type == 'subscription':
+            sub, _ = UserSubscription.objects.get_or_create(user=payment.user)
+            if not sub.is_active:
+                sub.is_active = True
+                sub.save(update_fields=['is_active', 'updated_at'])
+
+    def save_model(self, request, obj, form, change):
+        old_status = None
+        if change:
+            old_status = PaymentRequest.objects.filter(pk=obj.pk).values_list('status', flat=True).first()
+        if change and old_status != obj.status and obj.status in ('approved', 'rejected'):
+            obj.reviewed_by = obj.reviewed_by or request.user
+            obj.reviewed_at = obj.reviewed_at or timezone.now()
+        super().save_model(request, obj, form, change)
+        if obj.status == 'approved' and old_status != 'approved':
+            self._apply_approval_effect(obj)
+
+    @admin.action(description="Tanlangan pending to'lovlarni tasdiqlash")
+    def approve_selected_payments(self, request, queryset):
+        approved = 0
+        for payment in queryset.select_related('user', 'book').filter(status='pending'):
+            payment.status = 'approved'
+            payment.reviewed_by = request.user
+            payment.reviewed_at = timezone.now()
+            payment.save(update_fields=['status', 'reviewed_by', 'reviewed_at'])
+            self._apply_approval_effect(payment)
+            approved += 1
+        self.message_user(request, f"{approved} ta to'lov tasdiqlandi.")
+
+    @admin.action(description="Tanlangan pending to'lovlarni rad etish")
+    def reject_selected_payments(self, request, queryset):
+        rejected = queryset.filter(status='pending').update(
+            status='rejected', reviewed_by=request.user, reviewed_at=timezone.now()
+        )
+        self.message_user(request, f"{rejected} ta to'lov rad etildi.")
 
 
 # ==================== CHAT ====================
