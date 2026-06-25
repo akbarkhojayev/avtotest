@@ -529,7 +529,7 @@ class ProfileView(APIView):
             'user': UserSerializer(user).data,
             'subscription': {
                 'is_active': has_access,
-                'has_access': has_book_access,
+                'has_access': has_access,
                 'data': subscription_data,
             },
             'stats': {
@@ -1481,8 +1481,9 @@ class DashboardView(APIView):
 
 
 _PAYMENT_FORM_PARAMS = [
+    openapi.Parameter('payment_type', openapi.IN_FORM, type=openapi.TYPE_STRING, required=True, enum=['subscription', 'book'], description="To'lov turi: subscription=kurs/obuna, book=kitob"),
     openapi.Parameter('amount',  openapi.IN_FORM, type=openapi.TYPE_INTEGER, required=True, description="To'langan summa (so'mda)"),
-    openapi.Parameter('book_id', openapi.IN_FORM, type=openapi.TYPE_INTEGER,               description="Kitob ID si (kitob sotib olish uchun)"),
+    openapi.Parameter('book_id', openapi.IN_FORM, type=openapi.TYPE_INTEGER,               description="Kitob ID si (faqat payment_type=book uchun)"),
     openapi.Parameter('receipt', openapi.IN_FORM, type=openapi.TYPE_FILE,    required=True, description="To'lov cheki rasmi"),
     openapi.Parameter('comment', openapi.IN_FORM, type=openapi.TYPE_STRING,                description="Izoh (ixtiyoriy)"),
 ]
@@ -1509,17 +1510,20 @@ class PaymentRequestCreateView(APIView):
     def post(self, request):
         serializer = PaymentRequestCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        payment_type = serializer.validated_data['payment_type']
         book = serializer.validated_data.get('book')
 
-        pending_qs = PaymentRequest.objects.filter(user=request.user, status='pending')
-        if book:
+        pending_qs = PaymentRequest.objects.filter(
+            user=request.user, status='pending', payment_type=payment_type
+        )
+        if payment_type == 'book':
             pending_qs = pending_qs.filter(book=book)
         if pending_qs.exists():
             return Response(
                 {"detail": "Sizning kutilayotgan to'lov so'rovingiz mavjud. Avval u ko'rib chiqilishi kerak."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if book and PaymentRequest.objects.filter(user=request.user, book=book, status='approved').exists():
+        if payment_type == 'book' and PaymentRequest.objects.filter(user=request.user, book=book, status='approved').exists():
             return Response(
                 {"detail": "Siz bu kitobni allaqachon sotib olgansiz."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1535,7 +1539,7 @@ class PaymentRequestCreateView(APIView):
                 title="Yangi to'lov so'rovi",
                 message=f"{request.user.get_full_name() or request.user.username} "
                         f"{payment.amount:,} so'm to'lov cheki yubordi"
-                        + (f". Kitob: {payment.book.title}" if payment.book else "."),
+                        + (f". Kitob: {payment.book.title}" if payment.payment_type == 'book' else ". Kurs/obuna."),
                 type='payment_received',
             )
             for admin in admins
@@ -1575,11 +1579,11 @@ class PaymentAdminListView(generics.ListAPIView):
 
 
 class AdminPaymentAddView(APIView):
-    """Admin naqt pul yoki boshqa yo'l bilan to'lovni qo'lda kiritadi. book_id berilsa kitob, berilmasa kurslar ochiladi."""
+    """Admin naqt pul yoki boshqa yo'l bilan to'lovni qo'lda kiritadi. payment_type aniq ko'rsatiladi."""
     permission_classes = [IsAdminUser]
 
     @swagger_auto_schema(
-        operation_description="Admin foydalanuvchi uchun to'lov kiritadi. book_id berilsa kitob sotib olingan bo'ladi, berilmasa kurslar ochiladi.",
+        operation_description="Admin foydalanuvchi uchun to'lov kiritadi. payment_type=book bo'lsa kitob, subscription bo'lsa kurs/obuna ochiladi.",
         request_body=AdminPaymentAddSerializer,
     )
     def post(self, request):
@@ -1587,19 +1591,21 @@ class AdminPaymentAddView(APIView):
         serializer.is_valid(raise_exception=True)
 
         user_id    = serializer.validated_data['user_id']
+        payment_type = serializer.validated_data['payment_type']
         amount     = serializer.validated_data['amount']
         book_id    = serializer.validated_data.get('book_id')
         admin_note = serializer.validated_data.get('admin_note', '') or "Admin tomonidan qo'lda kiritildi."
 
         user = User.objects.get(pk=user_id)
-        book = Book.objects.filter(pk=book_id, is_active=True).first() if book_id else None
+        book = Book.objects.filter(pk=book_id, is_active=True).first() if payment_type == 'book' else None
 
-        if book and PaymentRequest.objects.filter(user=user, book=book, status='approved').exists():
+        if payment_type == 'book' and PaymentRequest.objects.filter(user=user, book=book, status='approved').exists():
             return Response({"detail": "Foydalanuvchi bu kitobni allaqachon sotib olgan."}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
             payment = PaymentRequest.objects.create(
                 user        = user,
+                payment_type = payment_type,
                 book        = book,
                 amount      = amount,
                 status      = 'approved',
@@ -1609,7 +1615,7 @@ class AdminPaymentAddView(APIView):
             )
             sub = None
             created = False
-            if not book:
+            if payment_type == 'subscription':
                 sub, created = UserSubscription.objects.get_or_create(user=user)
                 sub.is_active = True
                 sub.save()
@@ -1677,7 +1683,7 @@ class PaymentReviewView(APIView):
                 payment.save()
 
                 sub = None
-                if not payment.book:
+                if payment.payment_type == 'subscription':
                     sub, _ = UserSubscription.objects.get_or_create(user=payment.user)
                     sub.is_active = True
                     sub.save()
@@ -1687,13 +1693,13 @@ class PaymentReviewView(APIView):
                     title="To'lovingiz tasdiqlandi",
                     message=(
                         f"{payment.amount:,} so'mlik to'lovingiz tasdiqlandi. '{payment.book.title}' kitobi ochildi."
-                        if payment.book else
+                        if payment.payment_type == 'book' and payment.book else
                         f"{payment.amount:,} so'mlik to'lovingiz tasdiqlandi. Barcha kurslar ochildi."
                     ),
                     type='payment_approved',
                 )
                 return Response({
-                    "detail": ("Tasdiqlandi. Foydalanuvchi uchun kitob ochildi." if payment.book else "Tasdiqlandi. Foydalanuvchi uchun barcha kurslar ochildi."),
+                    "detail": ("Tasdiqlandi. Foydalanuvchi uchun kitob ochildi." if payment.payment_type == 'book' else "Tasdiqlandi. Foydalanuvchi uchun barcha kurslar ochildi."),
                     "payment": PaymentRequestAdminSerializer(payment, context={'request': request}).data,
                     "subscription": ({
                         "user":      payment.user.username,

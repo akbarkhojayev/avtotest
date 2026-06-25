@@ -246,8 +246,16 @@ class PaymentRequest(models.Model):
         ('approved', 'Tasdiqlandi'),
         ('rejected', 'Rad etildi'),
     ]
+    PAYMENT_TYPE_CHOICES = [
+        ('subscription', 'Kurs/obuna'),
+        ('book', 'Kitob'),
+    ]
 
     user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='payment_requests')
+    payment_type = models.CharField(
+        max_length=20, choices=PAYMENT_TYPE_CHOICES, default='subscription',
+        help_text="To'lov turi: kurs/obuna yoki kitob"
+    )
     book        = models.ForeignKey(
         'Book', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='payment_requests', help_text="Kitob uchun to'lov bo'lsa tanlanadi"
@@ -265,12 +273,22 @@ class PaymentRequest(models.Model):
     created_at      = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.user.username} — {self.amount:,} so'm ({self.get_status_display()})"
+        return f"{self.user.username} — {self.get_payment_type_display()} — {self.amount:,} so'm ({self.get_status_display()})"
 
     class Meta:
         verbose_name = "To'lov so'rovi"
         verbose_name_plural = "To'lov so'rovlari"
         ordering = ['-created_at']
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(
+                    models.Q(('book__isnull', False), ('payment_type', 'book')),
+                    models.Q(('book__isnull', True), ('payment_type', 'subscription')),
+                    _connector='OR',
+                ),
+                name='payment_type_matches_book',
+            ),
+        ]
 
 
 class ChatMessage(models.Model):

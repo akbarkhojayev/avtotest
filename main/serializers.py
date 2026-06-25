@@ -563,16 +563,22 @@ class PaymentRequestCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PaymentRequest
-        fields = ['id', 'amount', 'receipt', 'comment', 'book_id']
+        fields = ['id', 'payment_type', 'amount', 'receipt', 'comment', 'book_id']
         extra_kwargs = {
             'comment': {'required': False},
             'receipt': {'required': False},
         }
 
     def validate(self, attrs):
+        payment_type = attrs.get('payment_type') or 'subscription'
         book = attrs.get('book')
         amount = attrs.get('amount')
-        if book and amount is not None and amount < book.price:
+
+        if payment_type == 'book' and not book:
+            raise serializers.ValidationError({'book_id': "Kitob uchun to'lovda book_id majburiy."})
+        if payment_type == 'subscription' and book:
+            raise serializers.ValidationError({'book_id': "Obuna/kurs to'lovida book_id yuborilmaydi."})
+        if payment_type == 'book' and book and amount is not None and amount < book.price:
             raise serializers.ValidationError({
                 'amount': f"To'lov summasi kitob narxidan kam bo'lmasligi kerak: {book.price} so'm."
             })
@@ -586,7 +592,7 @@ class PaymentRequestSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentRequest
         fields = [
-            'id', 'amount', 'receipt', 'comment', 'book',
+            'id', 'payment_type', 'amount', 'receipt', 'comment', 'book',
             'status', 'status_display', 'admin_note', 'created_at',
         ]
 
@@ -601,7 +607,7 @@ class PaymentRequestAdminSerializer(serializers.ModelSerializer):
     class Meta:
         model = PaymentRequest
         fields = [
-            'id', 'username', 'full_name', 'amount', 'receipt', 'comment', 'book',
+            'id', 'username', 'full_name', 'payment_type', 'amount', 'receipt', 'comment', 'book',
             'status', 'status_display', 'admin_note',
             'reviewed_by_name', 'reviewed_at', 'created_at',
         ]
@@ -617,8 +623,9 @@ class PaymentReviewSerializer(serializers.Serializer):
 
 class AdminPaymentAddSerializer(serializers.Serializer):
     user_id    = serializers.IntegerField(help_text="Foydalanuvchi ID si")
+    payment_type = serializers.ChoiceField(choices=['subscription', 'book'], help_text="To'lov turi: subscription yoki book")
     amount     = serializers.IntegerField(min_value=1, help_text="To'lov summasi (so'mda)")
-    book_id    = serializers.IntegerField(required=False, allow_null=True, help_text="Kitob ID si (kitob sotib olish uchun)")
+    book_id    = serializers.IntegerField(required=False, allow_null=True, help_text="Kitob ID si (faqat payment_type=book uchun)")
     admin_note = serializers.CharField(required=False, allow_blank=True, help_text="Izoh (ixtiyoriy)")
 
     def validate_user_id(self, value):
@@ -632,9 +639,15 @@ class AdminPaymentAddSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs):
+        payment_type = attrs.get('payment_type')
         book_id = attrs.get('book_id')
         amount = attrs.get('amount')
-        if book_id:
+
+        if payment_type == 'book' and not book_id:
+            raise serializers.ValidationError({'book_id': "Kitob uchun to'lovda book_id majburiy."})
+        if payment_type == 'subscription' and book_id:
+            raise serializers.ValidationError({'book_id': "Obuna/kurs to'lovida book_id yuborilmaydi."})
+        if payment_type == 'book':
             book = Book.objects.get(pk=book_id)
             if amount < book.price:
                 raise serializers.ValidationError({
