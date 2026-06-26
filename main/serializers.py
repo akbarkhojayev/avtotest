@@ -503,6 +503,10 @@ class SubmitAnswerSerializer(serializers.Serializer):
     answer_id = serializers.IntegerField(min_value=1, help_text="Tanlangan javob ID si")
 
 
+class CheckAnswerSerializer(serializers.Serializer):
+    answer_id = serializers.IntegerField(min_value=1, help_text="Tanlangan javob ID si")
+
+
 class SubmitTestSerializer(serializers.Serializer):
     answers = SubmitAnswerSerializer(
         many=True,

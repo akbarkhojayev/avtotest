@@ -8,7 +8,7 @@ from .views import (
     VideoTestQuestionListView, VideoTestSubmitView, VideoTestResultListView,
     RoadSignListCreateView, RoadSignRetrieveUpdateDestroyView,
     RoadSignCategoryListView,
-    TestQuestionListView, TestQuestionDetailView,
+    TestQuestionListView, TestQuestionDetailView, CheckAnswerView,
     TestAnswerListCreateView, TestAnswerDetailView,
     SubmitTestView, TestResultListView, TestResultDetailView,
     TestStatisticsView,
@@ -71,6 +71,7 @@ urlpatterns = [
     # Test (umumiy)
     path('api/tests/questions/', TestQuestionListView.as_view(), name='test-question-list'),
     path('api/tests/questions/<int:pk>/', TestQuestionDetailView.as_view(), name='test-question-detail'),
+    path('api/tests/questions/<int:pk>/check/', CheckAnswerView.as_view(), name='test-question-check'),
     path('api/tests/answers/', TestAnswerListCreateView.as_view(), name='test-answer-list'),
     path('api/tests/answers/<int:pk>/', TestAnswerDetailView.as_view(), name='test-answer-detail'),
     path('api/tests/submit/', SubmitTestView.as_view(), name='submit-test'),

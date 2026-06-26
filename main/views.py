@@ -38,7 +38,7 @@ from .serializers import (
     TestQuestionWriteSerializer, TestQuestionWithAnswersWriteSerializer,
     TestAnswerWriteSerializer,
     TestResultSerializer, TestResultListSerializer,
-    SubmitTestSerializer,
+    SubmitTestSerializer, CheckAnswerSerializer,
     BookSerializer, BookWriteSerializer,
     SubscriptionSerializer,
     PaymentRequestCreateSerializer, PaymentRequestSerializer,
@@ -1166,6 +1166,68 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
         serializer.is_valid(raise_exception=True)
         question = serializer.save()
         return Response(TestQuestionDetailSerializer(question, context={'request': request}).data)
+
+
+
+class CheckAnswerView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=CheckAnswerSerializer,
+        responses={200: openapi.Response(
+            description="Javob tekshirildi",
+            schema=openapi.Schema(
+                type=openapi.TYPE_OBJECT,
+                properties={
+                    'question_id': openapi.Schema(type=openapi.TYPE_INTEGER),
+                    'question_text': openapi.Schema(type=openapi.TYPE_STRING),
+                    'selected_answer': openapi.Schema(type=openapi.TYPE_OBJECT),
+                    'correct_answer': openapi.Schema(type=openapi.TYPE_OBJECT),
+                    'is_correct': openapi.Schema(type=openapi.TYPE_BOOLEAN),
+                },
+            ),
+        )},
+    )
+    def post(self, request, pk):
+        question = get_object_or_404(
+            TestQuestion.objects.prefetch_related('answers').select_related('lesson_video'),
+            pk=pk,
+            is_active=True,
+        )
+        if question.lesson_video:
+            err = _check_subscription(request.user, question.lesson_video)
+            if err:
+                return err
+
+        serializer = CheckAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        answers = list(question.answers.all())
+        answer_by_id = {answer.id: answer for answer in answers}
+        selected_answer = answer_by_id.get(serializer.validated_data['answer_id'])
+        correct_answer = next((answer for answer in answers if answer.is_correct), None)
+
+        if not selected_answer:
+            return Response({
+                "detail": "Tanlangan javob shu savolga tegishli emas.",
+                "question_id": question.id,
+                "answer_id": serializer.validated_data['answer_id'],
+                "valid_answer_ids": sorted(answer_by_id.keys()),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not correct_answer:
+            return Response({
+                "detail": "Bu savolda to'g'ri javob belgilanmagan. Admin panelda savol javoblarini tekshiring.",
+                "question_id": question.id,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "question_id": question.id,
+            "question_text": question.question_text,
+            "selected_answer": _serialize_answer_option(selected_answer),
+            "correct_answer": _serialize_answer_option(correct_answer),
+            "is_correct": selected_answer.id == correct_answer.id,
+        })
 
 
 class TestAnswerListCreateView(generics.ListCreateAPIView):
