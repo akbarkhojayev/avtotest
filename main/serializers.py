@@ -444,16 +444,32 @@ class TestQuestionWithAnswersWriteSerializer(serializers.ModelSerializer):
 
 
 class UserTestAnswerSerializer(serializers.ModelSerializer):
+    question_id          = serializers.IntegerField(source='question.id', read_only=True)
     question_text        = serializers.CharField(source='question.question_text', read_only=True)
+    selected_answer_id   = serializers.IntegerField(source='selected_answer.id', read_only=True, allow_null=True)
     selected_answer_text = serializers.CharField(source='selected_answer.answer_text', read_only=True, allow_null=True)
+    correct_answer_id    = serializers.SerializerMethodField()
     correct_answer_text  = serializers.SerializerMethodField()
 
     class Meta:
         model = UserTestAnswer
-        fields = ['id', 'question_text', 'selected_answer_text', 'correct_answer_text', 'is_correct']
+        fields = [
+            'id', 'question_id', 'question_text',
+            'selected_answer_id', 'selected_answer_text',
+            'correct_answer_id', 'correct_answer_text', 'is_correct',
+        ]
+
+    def _correct_answer(self, obj):
+        if hasattr(obj.question, '_prefetched_objects_cache') and 'answers' in obj.question._prefetched_objects_cache:
+            return next((answer for answer in obj.question.answers.all() if answer.is_correct), None)
+        return obj.question.answers.filter(is_correct=True).first()
+
+    def get_correct_answer_id(self, obj):
+        correct = self._correct_answer(obj)
+        return correct.id if correct else None
 
     def get_correct_answer_text(self, obj):
-        correct = obj.question.answers.filter(is_correct=True).first()
+        correct = self._correct_answer(obj)
         return correct.answer_text if correct else None
 
 
@@ -482,12 +498,15 @@ class TestResultListSerializer(serializers.ModelSerializer):
 
 
 
+class SubmitAnswerSerializer(serializers.Serializer):
+    question_id = serializers.IntegerField(min_value=1, help_text="Savol ID si")
+    answer_id = serializers.IntegerField(min_value=1, help_text="Tanlangan javob ID si")
+
+
 class SubmitTestSerializer(serializers.Serializer):
-    answers = serializers.ListField(
-        child=serializers.DictField(
-            child=serializers.IntegerField(),
-            help_text='{"question_id": answer_id}'
-        )
+    answers = SubmitAnswerSerializer(
+        many=True,
+        help_text='[{"question_id": 1, "answer_id": 4}]'
     )
 
     def validate_answers(self, value):

@@ -860,6 +860,134 @@ class VideoTestQuestionListView(generics.ListAPIView):
         return Response(serializer.data)
 
 
+
+def _serialize_answer_option(answer):
+    if not answer:
+        return None
+    return {
+        'id': answer.id,
+        'answer_text': answer.answer_text,
+    }
+
+
+def _submit_test_answers(request, questions_qs, lesson_video=None):
+    questions = list(questions_qs.prefetch_related('answers'))
+    total = len(questions)
+
+    if total == 0:
+        return Response(
+            {"detail": "Bu test uchun savollar mavjud emas."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    serializer = SubmitTestSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    answers_data = serializer.validated_data['answers']
+
+    expected_question_ids = {question.id for question in questions}
+    submitted_question_ids = [item['question_id'] for item in answers_data]
+    submitted_question_id_set = set(submitted_question_ids)
+    duplicate_question_ids = sorted({qid for qid in submitted_question_ids if submitted_question_ids.count(qid) > 1})
+    missing_question_ids = sorted(expected_question_ids - submitted_question_id_set)
+    extra_question_ids = sorted(submitted_question_id_set - expected_question_ids)
+
+    if duplicate_question_ids or missing_question_ids or extra_question_ids or len(answers_data) != total:
+        return Response({
+            "detail": "Barcha savollarga bittadan javob yuborish kerak.",
+            "expected_count": total,
+            "received_count": len(answers_data),
+            "missing_question_ids": missing_question_ids,
+            "extra_question_ids": extra_question_ids,
+            "duplicate_question_ids": duplicate_question_ids,
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    question_by_id = {question.id: question for question in questions}
+    correct_count = 0
+    user_answers_list = []
+    answer_results = []
+
+    for answer_data in answers_data:
+        question = question_by_id[answer_data['question_id']]
+        answers = list(question.answers.all())
+        answer_by_id = {answer.id: answer for answer in answers}
+        selected_answer = answer_by_id.get(answer_data['answer_id'])
+        correct_answer = next((answer for answer in answers if answer.is_correct), None)
+
+        if not selected_answer:
+            return Response({
+                "detail": "Tanlangan javob shu savolga tegishli emas.",
+                "question_id": question.id,
+                "answer_id": answer_data['answer_id'],
+                "valid_answer_ids": sorted(answer_by_id.keys()),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not correct_answer:
+            return Response({
+                "detail": "Bu savolda to'g'ri javob belgilanmagan. Admin panelda savol javoblarini tekshiring.",
+                "question_id": question.id,
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        is_correct = selected_answer.id == correct_answer.id
+        if is_correct:
+            correct_count += 1
+
+        user_answers_list.append({
+            'question': question,
+            'answer': selected_answer,
+            'is_correct': is_correct,
+        })
+        answer_results.append({
+            'question_id': question.id,
+            'question_text': question.question_text,
+            'selected_answer': _serialize_answer_option(selected_answer),
+            'correct_answer': _serialize_answer_option(correct_answer),
+            'is_correct': is_correct,
+        })
+
+    score_percent = round((correct_count / total * 100) if total > 0 else 0, 1)
+    passed = score_percent >= 70
+
+    with transaction.atomic():
+        test_result = TestResult.objects.create(
+            user=request.user,
+            lesson_video=lesson_video,
+            total_questions=total,
+            correct_answers=correct_count,
+            score_percent=score_percent,
+            passed=passed,
+        )
+        UserTestAnswer.objects.bulk_create([
+            UserTestAnswer(
+                test_result=test_result,
+                question=item['question'],
+                selected_answer=item['answer'],
+                is_correct=item['is_correct'],
+            )
+            for item in user_answers_list
+        ])
+
+    test_result = (
+        TestResult.objects
+        .prefetch_related('user_answers__question__answers', 'user_answers__selected_answer')
+        .select_related('lesson_video')
+        .get(pk=test_result.pk)
+    )
+
+    return Response({
+        "message": "Test tekshirildi.",
+        "summary": {
+            "total_questions": total,
+            "correct_answers": correct_count,
+            "wrong_answers": total - correct_count,
+            "score_percent": score_percent,
+            "passed": passed,
+            "pass_score_percent": 70,
+        },
+        "answers": answer_results,
+        "result": TestResultSerializer(test_result).data,
+    }, status=status.HTTP_201_CREATED)
+
+
 class VideoTestSubmitView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -869,89 +997,10 @@ class VideoTestSubmitView(APIView):
         err = _check_subscription(request.user, video)
         if err:
             return err
-        serializer = SubmitTestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        answers_data = serializer.validated_data['answers']
         questions = TestQuestion.objects.filter(
             lesson_video=video, is_active=True
-        ).prefetch_related('answers')
-
-        total = questions.count()
-
-        if total == 0:
-            return Response(
-                {"detail": "Bu video uchun test mavjud emas."},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        if len(answers_data) != total:
-            return Response(
-                {
-                    "detail": (
-                        f"Barcha savollarga javob berish kerak. "
-                        f"Kutilgan: {total}, "
-                        f"Olingan: {len(answers_data)}"
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        correct_count = 0
-        user_answers_list = []
-
-        for answer_data in answers_data:
-            question_id = answer_data.get('question_id')
-            answer_id = answer_data.get('answer_id')
-
-            try:
-                question = questions.get(id=question_id)
-                answer = TestAnswer.objects.get(id=answer_id, question=question)
-            except (TestQuestion.DoesNotExist, TestAnswer.DoesNotExist):
-                return Response(
-                    {
-                        "detail": (
-                            f"Savol yoki javob topilmadi. "
-                            f"Question: {question_id}, Answer: {answer_id}"
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            is_correct = answer.is_correct
-            if is_correct:
-                correct_count += 1
-
-            user_answers_list.append({
-                'question': question,
-                'answer': answer,
-                'is_correct': is_correct,
-            })
-
-        score_percent = round((correct_count / total * 100) if total > 0 else 0, 1)
-        passed = score_percent >= 70
-
-        test_result = TestResult.objects.create(
-            user=request.user,
-            lesson_video=video,
-            total_questions=total,
-            correct_answers=correct_count,
-            score_percent=score_percent,
-            passed=passed,
-        )
-
-        for ua in user_answers_list:
-            UserTestAnswer.objects.create(
-                test_result=test_result,
-                question=ua['question'],
-                selected_answer=ua['answer'],
-                is_correct=ua['is_correct'],
-            )
-
-        return Response({
-            "message": "Test yuborildi.",
-            "result": TestResultSerializer(test_result).data,
-        }, status=status.HTTP_201_CREATED)
+        ).order_by('order', 'id')
+        return _submit_test_answers(request, questions, lesson_video=video)
 
 
 class VideoTestResultListView(generics.ListAPIView):
@@ -1081,7 +1130,9 @@ class TestQuestionDetailView(generics.RetrieveUpdateDestroyAPIView):
             return TestQuestionWriteSerializer
         if self.request.method in ('PUT', 'PATCH'):
             return TestQuestionWithAnswersWriteSerializer
-        return TestQuestionDetailSerializer
+        if self.request.user and self.request.user.is_staff:
+            return TestQuestionDetailSerializer
+        return TestQuestionSerializer
 
     def get_queryset(self):
         return TestQuestion.objects.filter(is_active=True).prefetch_related('answers')
@@ -1139,83 +1190,10 @@ class SubmitTestView(APIView):
 
     @swagger_auto_schema(request_body=SubmitTestSerializer)
     def post(self, request):
-        serializer = SubmitTestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        answers_data = serializer.validated_data['answers']
-
         questions = TestQuestion.objects.filter(
             is_active=True, lesson_video__isnull=True
-        ).prefetch_related('answers')
-
-        total = questions.count()
-
-        if len(answers_data) != total:
-            return Response(
-                {
-                    "detail": (
-                        f"Barcha savollarga javob berish kerak. "
-                        f"Kutilgan: {total}, "
-                        f"Olingan: {len(answers_data)}"
-                    )
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        correct_count = 0
-        user_answers_list = []
-
-        for answer_data in answers_data:
-            question_id = answer_data.get('question_id')
-            answer_id = answer_data.get('answer_id')
-
-            try:
-                question = questions.get(id=question_id)
-                answer = TestAnswer.objects.get(id=answer_id, question=question)
-            except (TestQuestion.DoesNotExist, TestAnswer.DoesNotExist):
-                return Response(
-                    {
-                        "detail": (
-                            f"Savol yoki javob topilmadi. "
-                            f"Question: {question_id}, Answer: {answer_id}"
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            is_correct = answer.is_correct
-            if is_correct:
-                correct_count += 1
-
-            user_answers_list.append({
-                'question': question,
-                'answer': answer,
-                'is_correct': is_correct
-            })
-
-        score_percent = round((correct_count / total * 100) if total > 0 else 0, 1)
-        passed = score_percent >= 70
-
-        test_result = TestResult.objects.create(
-            user=request.user,
-            total_questions=total,
-            correct_answers=correct_count,
-            score_percent=score_percent,
-            passed=passed
-        )
-
-        for user_answer in user_answers_list:
-            UserTestAnswer.objects.create(
-                test_result=test_result,
-                question=user_answer['question'],
-                selected_answer=user_answer['answer'],
-                is_correct=user_answer['is_correct']
-            )
-
-        return Response({
-            "message": "Test yuborildi.",
-            "result": TestResultSerializer(test_result).data
-        }, status=status.HTTP_201_CREATED)
+        ).order_by('order', 'id')
+        return _submit_test_answers(request, questions, lesson_video=None)
 
 
 class TestResultListView(generics.ListAPIView):
