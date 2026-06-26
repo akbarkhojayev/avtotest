@@ -115,6 +115,8 @@ DATABASES = {
         'NAME': os.environ.get('POSTGRES_DB', 'autostarts'),
         'USER': os.environ.get('POSTGRES_USER', 'autouser'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', ''),
+        'CONN_MAX_AGE': int(os.environ.get('POSTGRES_CONN_MAX_AGE', '60')),
+        'CONN_HEALTH_CHECKS': True,
         'HOST': os.environ.get('POSTGRES_HOST', 'db'),
         'PORT': int(os.environ.get('POSTGRES_PORT', '5432')),
     }
@@ -175,6 +177,31 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
     'x-device-id',
 ]
+
+REDIS_URL = os.environ.get("REDIS_URL", "")
+
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "TIMEOUT": int(os.environ.get("DJANGO_CACHE_TIMEOUT", "300")),
+            "KEY_PREFIX": os.environ.get("DJANGO_CACHE_KEY_PREFIX", "avtotest"),
+        }
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "avtotest-cache",
+            "TIMEOUT": int(os.environ.get("DJANGO_CACHE_TIMEOUT", "300")),
+        }
+    }
+
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+PROFILE_RECENT_LIMIT = int(os.environ.get("PROFILE_RECENT_LIMIT", "100"))
+VIDEO_PROGRESS_WRITE_INTERVAL_SECONDS = int(os.environ.get("VIDEO_PROGRESS_WRITE_INTERVAL_SECONDS", "10"))
+VIDEO_PROGRESS_WRITE_STEP_SECONDS = int(os.environ.get("VIDEO_PROGRESS_WRITE_STEP_SECONDS", "5"))
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

@@ -53,6 +53,7 @@ from .serializers import (
 from .models import OTP
 from django.core.mail import send_mail
 from django.conf import settings
+from django.core.cache import cache
 import random
 
 
@@ -451,21 +452,33 @@ class ProfileView(APIView):
     def get(self, request):
         user = request.user
 
-        total_videos = Video.objects.filter(is_active=True).count()
+        total_videos = cache.get_or_set(
+            'profile:active-video-count',
+            lambda: Video.objects.filter(is_active=True).count(),
+            60,
+        )
         progress_qs = (
             VideoProgress.objects
             .filter(user=user, video__is_active=True)
             .select_related('video')
+            .only(
+                'id', 'video_id', 'watched_seconds', 'is_completed', 'last_watched',
+                'video__id', 'video__title', 'video__title_ru', 'video__duration',
+                'video__order', 'video__is_paid', 'video__thumbnail',
+            )
             .order_by('-last_watched')
         )
         watched_progress_qs = progress_qs.filter(watched_seconds__gt=0)
         completed_progress_qs = progress_qs.filter(is_completed=True)
 
-        watched_videos_count = watched_progress_qs.count()
-        completed_videos_count = completed_progress_qs.count()
-        total_watched_seconds = progress_qs.aggregate(
-            total=models.Sum('watched_seconds')
-        )['total'] or 0
+        progress_stats = progress_qs.aggregate(
+            watched_videos=models.Count('id', filter=models.Q(watched_seconds__gt=0)),
+            completed_videos=models.Count('id', filter=models.Q(is_completed=True)),
+            total_watched=models.Sum('watched_seconds'),
+        )
+        watched_videos_count = progress_stats['watched_videos'] or 0
+        completed_videos_count = progress_stats['completed_videos'] or 0
+        total_watched_seconds = progress_stats['total_watched'] or 0
 
         test_results_qs = (
             TestResult.objects
@@ -473,11 +486,14 @@ class ProfileView(APIView):
             .select_related('lesson_video')
             .order_by('-completed_at')
         )
-        total_tests = test_results_qs.count()
-        passed_tests = test_results_qs.filter(passed=True).count()
-        avg_score = test_results_qs.aggregate(
-            avg=models.Avg('score_percent')
-        )['avg'] or 0
+        test_stats = test_results_qs.aggregate(
+            total=models.Count('id'),
+            passed=models.Count('id', filter=models.Q(passed=True)),
+            avg=models.Avg('score_percent'),
+        )
+        total_tests = test_stats['total'] or 0
+        passed_tests = test_stats['passed'] or 0
+        avg_score = test_stats['avg'] or 0
 
         payments_qs = PaymentRequest.objects.filter(user=user).select_related('book').order_by('-created_at')
         approved_payments_qs = payments_qs.filter(status='approved')
@@ -498,7 +514,14 @@ class ProfileView(APIView):
         else:
             purchased_book_ids = approved_book_payments_qs.values_list('book_id', flat=True).distinct()
             accessible_books_qs = active_books_qs.filter(id__in=purchased_book_ids)
-        has_book_access = accessible_books_qs.exists()
+        active_books_count = cache.get_or_set(
+            'profile:active-book-count',
+            lambda: Book.objects.filter(is_active=True).count(),
+            60,
+        )
+        accessible_books_count = accessible_books_qs.count()
+        has_book_access = accessible_books_count > 0
+        profile_recent_limit = max(1, getattr(settings, 'PROFILE_RECENT_LIMIT', 100))
 
         def video_progress_payload(progress):
             video = progress.video
@@ -545,15 +568,15 @@ class ProfileView(APIView):
                 'passed_tests': passed_tests,
                 'test_pass_rate': round((passed_tests / total_tests * 100) if total_tests > 0 else 0, 1),
                 'average_score': round(avg_score, 1),
-                'total_books': active_books_qs.count(),
-                'accessible_books': accessible_books_qs.count(),
-                'purchased_books': accessible_books_qs.count(),
+                'total_books': active_books_count,
+                'accessible_books': accessible_books_count,
+                'purchased_books': accessible_books_count,
                 'approved_payments': approved_payments_qs.count(),
                 'pending_payments': pending_payments_count,
             },
-            'video_progress': [video_progress_payload(progress) for progress in progress_qs],
-            'watched_videos': [video_progress_payload(progress) for progress in watched_progress_qs],
-            'completed_videos': [video_progress_payload(progress) for progress in completed_progress_qs],
+            'video_progress': [video_progress_payload(progress) for progress in progress_qs[:profile_recent_limit]],
+            'watched_videos': [video_progress_payload(progress) for progress in watched_progress_qs[:profile_recent_limit]],
+            'completed_videos': [video_progress_payload(progress) for progress in completed_progress_qs[:profile_recent_limit]],
             'test_results': recent_tests,
             'payments': recent_payments,
             'books': {
@@ -745,12 +768,25 @@ class UpdateProgressView(APIView):
         progress, _ = VideoProgress.objects.get_or_create(
             user=request.user, video=video
         )
-        progress.watched_seconds = serializer.validated_data['watched_seconds']
-        progress.is_completed = serializer.validated_data['is_completed']
-        progress.save()
+        requested_seconds = serializer.validated_data['watched_seconds']
+        requested_completed = serializer.validated_data['is_completed']
+        write_step = max(1, getattr(settings, 'VIDEO_PROGRESS_WRITE_STEP_SECONDS', 5))
+        write_interval = max(1, getattr(settings, 'VIDEO_PROGRESS_WRITE_INTERVAL_SECONDS', 10))
+        cache_key = f"video-progress-write:{request.user.id}:{video.id}"
+
+        next_seconds = max(progress.watched_seconds, requested_seconds)
+        completion_changed = requested_completed and not progress.is_completed
+        seconds_advanced = next_seconds >= progress.watched_seconds + write_step
+        interval_ready = cache.add(cache_key, '1', write_interval)
+
+        if completion_changed or seconds_advanced or interval_ready:
+            progress.watched_seconds = next_seconds
+            progress.is_completed = progress.is_completed or requested_completed
+            progress.save(update_fields=['watched_seconds', 'is_completed', 'last_watched'])
 
         return Response({
             "message": "Progress saqlandi.",
+            "watched_seconds": progress.watched_seconds,
             "is_completed": progress.is_completed
         })
 

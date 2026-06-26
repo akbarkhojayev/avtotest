@@ -78,6 +78,9 @@ class Video(models.Model):
         verbose_name = "Video"
         verbose_name_plural = "Videolar"
         ordering = ['order', 'created_at']
+        indexes = [
+            models.Index(fields=['is_active', 'order', 'created_at'], name='video_active_order_idx'),
+        ]
 
 
 class VideoProgress(models.Model):
@@ -94,6 +97,10 @@ class VideoProgress(models.Model):
         verbose_name = "Video Progress"
         verbose_name_plural = "Video Progresslar"
         unique_together = ['user', 'video']
+        indexes = [
+            models.Index(fields=['user', '-last_watched'], name='progress_user_last_idx'),
+            models.Index(fields=['user', 'is_completed'], name='progress_user_done_idx'),
+        ]
 
 
 class RoadSign(models.Model):
@@ -122,6 +129,9 @@ class RoadSign(models.Model):
         verbose_name = "Yo'l Belgisi"
         verbose_name_plural = "Yo'l Belgilari"
         ordering = ['category', 'order', 'code']
+        indexes = [
+            models.Index(fields=['is_active', 'category', 'order'], name='roadsign_active_cat_idx'),
+        ]
 
 class Category(models.Model):
     name = models.CharField(max_length=200)
@@ -211,6 +221,9 @@ class TestResult(models.Model):
         verbose_name = "Test Natijasi"
         verbose_name_plural = "Test Natijalari"
         ordering = ['-completed_at']
+        indexes = [
+            models.Index(fields=['user', '-completed_at'], name='testresult_user_done_idx'),
+        ]
 
 
 class UserTestAnswer(models.Model):
@@ -279,6 +292,10 @@ class PaymentRequest(models.Model):
         verbose_name = "To'lov so'rovi"
         verbose_name_plural = "To'lov so'rovlari"
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'status', '-created_at'], name='payment_user_status_idx'),
+            models.Index(fields=['user', 'book', 'status'], name='payment_user_book_idx'),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(
@@ -401,3 +418,6 @@ class Book(models.Model):
         verbose_name = "Kitob"
         verbose_name_plural = "Kitoblar"
         ordering = ['order', 'created_at']
+        indexes = [
+            models.Index(fields=['is_active', 'order', 'created_at'], name='book_active_order_idx'),
+        ]
